@@ -468,21 +468,25 @@ def parse_args() -> argparse.Namespace:
 		)
 	)
 	parser.add_argument(
+		"-o",
 		"--old-account-id",
 		required=True,
 		help="Atlassian account ID of the departing user",
 	)
 	parser.add_argument(
+		"-n",
 		"--new-account-id",
 		required=True,
 		help="Atlassian account ID of the replacement user",
 	)
 	parser.add_argument(
+		"-d",
 		"--dry-run",
 		action="store_true",
 		help="Preview all changes without applying them",
 	)
 	parser.add_argument(
+		"-f",
 		"--out",
 		help="Path to output CSV file. Default: transfer_user_ownership_<UTC timestamp>.csv",
 	)

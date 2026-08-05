@@ -14,10 +14,10 @@ Board admin removal is not fully automatable through Jira APIs, so boards are fl
 
 | Option | Required | Description |
 |---|---|---|
-| `--old-account-id` | Yes | Atlassian account ID of the departing user |
-| `--new-account-id` | Yes | Atlassian account ID of the replacement user |
-| `--dry-run` | No | Preview all actions without applying API updates |
-| `--out` | No | Output CSV path. Default: `transfer_user_ownership_<UTC timestamp>.csv` |
+| `-o`, `--old-account-id` | Yes | Atlassian account ID of the departing user |
+| `-n`, `--new-account-id` | Yes | Atlassian account ID of the replacement user |
+| `-d`, `--dry-run` | No | Preview all actions without applying API updates |
+| `-f`, `--out` | No | Output CSV path. Default: `transfer_user_ownership_<UTC timestamp>.csv` |
 
 ## Required Environment Variables
 
