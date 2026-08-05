@@ -25,6 +25,13 @@ def normalize_site(site: str) -> str:
 	value = site.strip()
 	if not value:
 		return ""
+	# Defensive cleanup for mistakenly brace-wrapped host values.
+	if value.startswith("%7B") and value.endswith("%7D") and len(value) > 6:
+		value = value[3:-3]
+	if value.startswith("%7b") and value.endswith("%7d") and len(value) > 6:
+		value = value[3:-3]
+	if value.startswith("{") and value.endswith("}") and len(value) > 2:
+		value = value[1:-1]
 	if not value.startswith("http://") and not value.startswith("https://"):
 		value = f"https://{value}"
 	return value.rstrip("/")
