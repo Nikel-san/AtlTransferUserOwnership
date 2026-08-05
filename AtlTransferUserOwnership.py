@@ -535,6 +535,110 @@ def transfer_issue_reporters(
 	return processed, errors
 
 
+def _print_audit_group(title: str, items: List[Tuple[str, str]]) -> None:
+	print(f"\n{title}: {len(items)}")
+	if not items:
+		print("  - none")
+		return
+
+	for entity_id, entity_name in items:
+		display = entity_name if entity_name else "(no name)"
+		print(f"  - {entity_id}: {display}")
+
+
+def run_audit_mode(client: JiraClient, old_account_id: str) -> int:
+	filters = get_paginated(
+		client,
+		"/rest/api/3/filter/search",
+		{"accountId": old_account_id},
+		values_key="values",
+	)
+	dashboards = get_paginated(
+		client,
+		"/rest/api/3/dashboard/search",
+		{"accountId": old_account_id},
+		values_key="values",
+	)
+	assignee_issues = get_jql_search_issues(
+		client,
+		f'assignee = "{old_account_id}"',
+		"summary,assignee",
+		page_size=100,
+	)
+	reporter_issues = get_jql_search_issues(
+		client,
+		f'reporter = "{old_account_id}"',
+		"summary,reporter",
+		page_size=100,
+	)
+
+	boards = get_paginated(
+		client,
+		"/rest/agile/1.0/board",
+		{},
+		values_key="values",
+		page_size=50,
+	)
+	board_items: List[Tuple[str, str]] = []
+	for board in boards:
+		board_id = str(board.get("id", ""))
+		board_name = board.get("name", "")
+		if not board_id:
+			continue
+
+		status, payload = client.request_json(
+			"GET", f"/rest/agile/1.0/board/{board_id}/admins"
+		)
+		if status < 200 or status >= 300:
+			continue
+
+		admins = _extract_board_admins(payload)
+		if old_account_id in admins:
+			board_items.append((board_id, board_name))
+
+	filter_items = [
+		(str(item.get("id", "")), str(item.get("name", "")))
+		for item in filters
+		if str(item.get("id", ""))
+	]
+	dashboard_items = [
+		(str(item.get("id", "")), str(item.get("name", "")))
+		for item in dashboards
+		if str(item.get("id", ""))
+	]
+	assignee_items = [
+		(str(issue.get("key", "")), str(issue.get("fields", {}).get("summary", "")))
+		for issue in assignee_issues
+		if str(issue.get("key", ""))
+	]
+	reporter_items = [
+		(str(issue.get("key", "")), str(issue.get("fields", {}).get("summary", "")))
+		for issue in reporter_issues
+		if str(issue.get("key", ""))
+	]
+
+	print("Audit mode: destination user not provided, no changes will be made.")
+	print(f"Source account: {old_account_id}")
+
+	_print_audit_group("Boards", board_items)
+	_print_audit_group("Filters", filter_items)
+	_print_audit_group("Dashboards", dashboard_items)
+	_print_audit_group("Issues as reporter", reporter_items)
+	_print_audit_group("Issues as assignee", assignee_items)
+
+	total = (
+		len(board_items)
+		+ len(filter_items)
+		+ len(dashboard_items)
+		+ len(reporter_items)
+		+ len(assignee_items)
+	)
+	print("\nSummary")
+	print(f"Total owned objects found: {total}")
+
+	return 0
+
+
 def _extract_board_admins(payload: Any) -> List[str]:
 	admins: List[str] = []
 	if not isinstance(payload, dict):
@@ -643,7 +747,10 @@ def parse_args() -> argparse.Namespace:
 	parser.add_argument(
 		"-n",
 		"--new-email",
-		help="Email address of the replacement user",
+		help=(
+			"Email address of the replacement user. Optional: omit together with "
+			"--new-id to run read-only audit mode."
+		),
 	)
 	parser.add_argument(
 		"--old-id",
@@ -651,7 +758,10 @@ def parse_args() -> argparse.Namespace:
 	)
 	parser.add_argument(
 		"--new-id",
-		help="Jira account ID of the replacement user (bypasses new email lookup)",
+		help=(
+			"Jira account ID of the replacement user (bypasses new email lookup). "
+			"Optional: omit together with --new-email to run read-only audit mode."
+		),
 	)
 	parser.add_argument(
 		"-d",
@@ -705,9 +815,8 @@ def main() -> int:
 	if not old_id and not old_email:
 		print(color_text("Provide either --old-email or --old-id.", RED))
 		return 1
-	if not new_id and not new_email:
-		print(color_text("Provide either --new-email or --new-id.", RED))
-		return 1
+
+	audit_mode = not new_id and not new_email
 
 	if old_email and new_email and old_email.lower() == new_email.lower():
 		print(color_text("Old and new email addresses must be different.", RED))
@@ -719,17 +828,28 @@ def main() -> int:
 		else:
 			old_account_id = lookup_account_id_by_email(client, old_email)
 
-		if new_id:
-			new_account_id = new_id
-		else:
-			new_account_id = lookup_account_id_by_email(client, new_email)
+		new_account_id = ""
+		if not audit_mode:
+			if new_id:
+				new_account_id = new_id
+			else:
+				new_account_id = lookup_account_id_by_email(client, new_email)
 	except RuntimeError as exc:
 		print(color_text(str(exc), RED))
 		return 1
 
-	if old_account_id == new_account_id:
+	if not audit_mode and old_account_id == new_account_id:
 		print(color_text("Old and new account IDs must be different.", RED))
 		return 1
+
+	if audit_mode:
+		if args.dry_run:
+			print("Audit mode selected; --dry-run is redundant because no changes are made.")
+		try:
+			return run_audit_mode(client, old_account_id)
+		except RuntimeError as exc:
+			print(color_text(str(exc), RED))
+			return 1
 
 	rows: List[CsvRow] = []
 	total_errors = 0

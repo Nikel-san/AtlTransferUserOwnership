@@ -2,6 +2,8 @@
 
 AtlTransferUserOwnership transfers Jira ownership and assignment responsibilities from one Jira user to another.
 
+If destination user identifiers are omitted, the script runs in read-only audit mode and lists all owned objects for the source user.
+
 The script processes:
 - Filters owned by the old account
 - Dashboards owned by the old account
@@ -18,14 +20,15 @@ Board admin removal is not fully automatable through Jira APIs, so boards are fl
 | `-s`, `--site` | No | Jira Cloud site URL or hostname. Overrides `ATLASSIAN_SITE` when provided. |
 | `-o`, `--old-email` | One of old pair | Email address of the departing user. Mutually exclusive with `--old-id`. |
 | `--old-id` | One of old pair | Jira account ID of the departing user. Mutually exclusive with `--old-email`. |
-| `-n`, `--new-email` | One of new pair | Email address of the replacement user. Mutually exclusive with `--new-id`. |
-| `--new-id` | One of new pair | Jira account ID of the replacement user. Mutually exclusive with `--new-email`. |
+| `-n`, `--new-email` | No (required for transfer) | Email address of the replacement user. Mutually exclusive with `--new-id`. Omit together with `--new-id` to run audit mode. |
+| `--new-id` | No (required for transfer) | Jira account ID of the replacement user. Mutually exclusive with `--new-email`. Omit together with `--new-email` to run audit mode. |
 | `-d`, `--dry-run` | No | Preview all actions without applying API updates |
 | `-f`, `--out` | No | Output CSV path. Default: `transfer_user_ownership_<UTC timestamp>.csv` |
 
 Identifier requirement:
 - You must provide exactly one identifier for the old user: `--old-email` or `--old-id`.
-- You must provide exactly one identifier for the new user: `--new-email` or `--new-id`.
+- For transfer mode, provide exactly one identifier for the new user: `--new-email` or `--new-id`.
+- For audit mode, omit both `--new-email` and `--new-id`.
 
 ## Environment Variables
 
@@ -90,6 +93,21 @@ python AtlTransferUserOwnership.py \
 	--old-id OLD_ACCOUNT_ID \
 	--new-id NEW_ACCOUNT_ID
 ```
+
+Audit mode (source only, no changes):
+
+```bash
+python AtlTransferUserOwnership.py \
+	--site https://your-site.atlassian.net \
+	--old-id OLD_ACCOUNT_ID
+```
+
+Audit mode output is grouped by type with counts:
+- Boards
+- Filters
+- Dashboards
+- Issues as reporter
+- Issues as assignee
 
 ## CSV Output
 
