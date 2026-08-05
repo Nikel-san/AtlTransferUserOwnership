@@ -16,6 +16,8 @@ Board admin removal is not fully automatable through Jira APIs, so boards are fl
 |---|---|---|
 | `-o`, `--old-email` | Yes | Email address of the departing user |
 | `-n`, `--new-email` | Yes | Email address of the replacement user |
+| `--old-id` | No | Jira account ID of the departing user. Bypasses `--old-email` lookup. |
+| `--new-id` | No | Jira account ID of the replacement user. Bypasses `--new-email` lookup. |
 | `-d`, `--dry-run` | No | Preview all actions without applying API updates |
 | `-f`, `--out` | No | Output CSV path. Default: `transfer_user_ownership_<UTC timestamp>.csv` |
 
@@ -27,7 +29,9 @@ The script validates these variables at startup and exits with non-zero code if 
 - `JIRA_EMAIL` - Jira user email used for API authentication
 - `JIRA_PAT` - Jira personal access token
 
-When resolving `--old-email` and `--new-email`, the script first looks for an exact Jira email match. If Jira returns exactly one matching user but the `emailAddress` field is hidden by privacy rules, the script trusts that single result and continues with its account ID.
+By default, the script resolves users from `--old-email` and `--new-email`. If Jira cannot resolve an external/non-managed account by email, provide `--old-id` and/or `--new-id` to bypass email lookup for that side.
+
+When resolving by email, the script first looks for an exact Jira email match. If Jira returns exactly one matching user but the `emailAddress` field is hidden by privacy rules, the script trusts that single result and continues with its account ID.
 
 ## Usage
 
@@ -65,6 +69,14 @@ python AtlTransferUserOwnership.py \
 	--old-email old.user@example.com \
 	--new-email new.user@example.com \
 	--out transfer_result.csv
+```
+
+Live transfer using direct account IDs (lookup bypass):
+
+```bash
+python AtlTransferUserOwnership.py \
+	--old-id OLD_ACCOUNT_ID \
+	--new-id NEW_ACCOUNT_ID
 ```
 
 ## CSV Output

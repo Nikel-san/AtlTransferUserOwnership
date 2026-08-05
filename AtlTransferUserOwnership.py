@@ -570,14 +570,20 @@ def parse_args() -> argparse.Namespace:
 	parser.add_argument(
 		"-o",
 		"--old-email",
-		required=True,
 		help="Email address of the departing user",
 	)
 	parser.add_argument(
 		"-n",
 		"--new-email",
-		required=True,
 		help="Email address of the replacement user",
+	)
+	parser.add_argument(
+		"--old-id",
+		help="Jira account ID of the departing user (bypasses old email lookup)",
+	)
+	parser.add_argument(
+		"--new-id",
+		help="Jira account ID of the replacement user (bypasses new email lookup)",
 	)
 	parser.add_argument(
 		"-d",
@@ -602,17 +608,40 @@ def main() -> int:
 		print(color_text("ATLASSIAN_SITE is empty after normalization.", RED))
 		return 1
 
-	if args.old_email.strip().lower() == args.new_email.strip().lower():
+	client = JiraClient(base_url, env["JIRA_EMAIL"], env["JIRA_PAT"])
+
+	old_email = args.old_email.strip() if args.old_email else ""
+	new_email = args.new_email.strip() if args.new_email else ""
+	old_id = args.old_id.strip() if args.old_id else ""
+	new_id = args.new_id.strip() if args.new_id else ""
+
+	if not old_id and not old_email:
+		print(color_text("Provide either --old-email or --old-id.", RED))
+		return 1
+	if not new_id and not new_email:
+		print(color_text("Provide either --new-email or --new-id.", RED))
+		return 1
+
+	if old_email and new_email and old_email.lower() == new_email.lower():
 		print(color_text("Old and new email addresses must be different.", RED))
 		return 1
 
-	client = JiraClient(base_url, env["JIRA_EMAIL"], env["JIRA_PAT"])
-
 	try:
-		old_account_id = lookup_account_id_by_email(client, args.old_email.strip())
-		new_account_id = lookup_account_id_by_email(client, args.new_email.strip())
+		if old_id:
+			old_account_id = old_id
+		else:
+			old_account_id = lookup_account_id_by_email(client, old_email)
+
+		if new_id:
+			new_account_id = new_id
+		else:
+			new_account_id = lookup_account_id_by_email(client, new_email)
 	except RuntimeError as exc:
 		print(color_text(str(exc), RED))
+		return 1
+
+	if old_account_id == new_account_id:
+		print(color_text("Old and new account IDs must be different.", RED))
 		return 1
 
 	rows: List[CsvRow] = []
