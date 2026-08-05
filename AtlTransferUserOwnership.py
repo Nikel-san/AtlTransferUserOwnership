@@ -6,7 +6,7 @@ import os
 import sys
 import time
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 from urllib import error, parse, request
 
@@ -482,6 +482,10 @@ def parse_args() -> argparse.Namespace:
 		action="store_true",
 		help="Preview all changes without applying them",
 	)
+	parser.add_argument(
+		"--out",
+		help="Path to output CSV file. Default: transfer_user_ownership_<UTC timestamp>.csv",
+	)
 	return parser.parse_args()
 
 
@@ -537,8 +541,8 @@ def main() -> int:
 		print(color_text(str(exc), RED))
 		return 1
 
-	ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
-	output_file = f"transfer_user_ownership_{ts}.csv"
+	ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+	output_file = args.out if args.out else f"transfer_user_ownership_{ts}.csv"
 	write_csv(rows, output_file)
 
 	mode_text = "DRY-RUN" if args.dry_run else "APPLY"
