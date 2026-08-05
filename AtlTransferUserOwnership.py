@@ -472,6 +472,69 @@ def transfer_issue_assignments(
 	return processed, errors
 
 
+def transfer_issue_reporters(
+	client: JiraClient,
+	old_account_id: str,
+	new_account_id: str,
+	dry_run: bool,
+	rows: List[CsvRow],
+) -> Tuple[int, int]:
+	jql = f'reporter = "{old_account_id}"'
+	issues = get_jql_search_issues(client, jql, "summary,reporter", page_size=100)
+
+	processed = 0
+	errors = 0
+
+	for issue in issues:
+		key = issue.get("key", "")
+		fields = issue.get("fields", {})
+		summary = fields.get("summary", "") if isinstance(fields, dict) else ""
+		if not key:
+			continue
+
+		processed += 1
+		action = "preview-transfer" if dry_run else "transferred"
+
+		if not dry_run:
+			status, payload = client.request_json(
+				"PUT",
+				f"/rest/api/3/issue/{key}",
+				payload={"fields": {"reporter": {"accountId": new_account_id}}},
+			)
+			if status < 200 or status >= 300:
+				errors += 1
+				action = "error"
+				print(
+					color_text(
+						f"[REPORTER] Failed reporter transfer {key} ({summary}): {payload}",
+						RED,
+					)
+				)
+			else:
+				print(
+					color_text(
+						f"[REPORTER] Transferred reporter {key} ({summary})", GREEN
+					)
+				)
+		else:
+			print(
+				color_text(f"[REPORTER] Preview reporter transfer {key} ({summary})", GREEN)
+			)
+
+		rows.append(
+			CsvRow(
+				"issue-reporter",
+				key,
+				summary,
+				action,
+				old_account_id,
+				new_account_id,
+			)
+		)
+
+	return processed, errors
+
+
 def _extract_board_admins(payload: Any) -> List[str]:
 	admins: List[str] = []
 	if not isinstance(payload, dict):
@@ -693,6 +756,13 @@ def main() -> int:
 			args.dry_run,
 			rows,
 		)
+		reporters_processed, reporter_errors = transfer_issue_reporters(
+			client,
+			old_account_id,
+			new_account_id,
+			args.dry_run,
+			rows,
+		)
 		boards_processed, board_errors = process_boards(
 			client,
 			old_account_id,
@@ -700,7 +770,13 @@ def main() -> int:
 			args.dry_run,
 			rows,
 		)
-		total_errors = filter_errors + dashboard_errors + issue_errors + board_errors
+		total_errors = (
+			filter_errors
+			+ dashboard_errors
+			+ issue_errors
+			+ reporter_errors
+			+ board_errors
+		)
 	except RuntimeError as exc:
 		print(color_text(str(exc), RED))
 		return 1
@@ -715,6 +791,7 @@ def main() -> int:
 	print(f"Filters processed: {filters_processed}")
 	print(f"Dashboards processed: {dashboards_processed}")
 	print(f"Issues processed: {issues_processed}")
+	print(f"Issue reporters processed: {reporters_processed}")
 	print(f"Boards flagged: {boards_processed}")
 	print(f"Errors: {total_errors}")
 	print(f"CSV: {output_file}")

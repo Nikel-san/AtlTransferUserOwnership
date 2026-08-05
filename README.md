@@ -6,6 +6,7 @@ The script processes:
 - Filters owned by the old account
 - Dashboards owned by the old account
 - Issues currently assigned to the old account
+- Issues currently reported by the old account
 - Boards where the old account is an admin
 
 Board admin removal is not fully automatable through Jira APIs, so boards are flagged for manual review in the CSV output.
@@ -94,7 +95,7 @@ python AtlTransferUserOwnership.py \
 
 The CSV file includes one row per processed entity with these columns:
 
-- `entity_type` - Entity category (`filter`, `dashboard`, `issue`, `board`)
+- `entity_type` - Entity category (`filter`, `dashboard`, `issue`, `issue-reporter`, `board`)
 - `entity_id` - Jira entity identifier (ID or key)
 - `entity_name` - Entity display name or issue summary
 - `action` - Result of processing (`transferred`, `preview-transfer`, `manual-review-required`, or `error`)
