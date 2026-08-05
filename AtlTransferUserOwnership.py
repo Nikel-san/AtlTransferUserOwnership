@@ -202,6 +202,39 @@ def get_paginated(
 	return items
 
 
+def lookup_account_id_by_email(client: JiraClient, email: str) -> str:
+	status, payload = client.request_json(
+		"GET",
+		"/rest/api/3/user/search",
+		query={"query": email, "maxResults": 50},
+	)
+	if status < 200 or status >= 300:
+		raise RuntimeError(
+			f"GET /rest/api/3/user/search failed with status {status}: {payload}"
+		)
+
+	if not isinstance(payload, list):
+		raise RuntimeError(f"Unexpected user search response for {email}: {payload}")
+
+	exact_match: Optional[Dict[str, Any]] = None
+	for user in payload:
+		if not isinstance(user, dict):
+			continue
+		user_email = user.get("emailAddress")
+		if isinstance(user_email, str) and user_email.lower() == email.lower():
+			exact_match = user
+			break
+
+	if exact_match is None:
+		raise RuntimeError(f"No Jira user found for email address: {email}")
+
+	account_id = exact_match.get("accountId")
+	if not isinstance(account_id, str) or not account_id:
+		raise RuntimeError(f"Jira user search did not return accountId for {email}")
+
+	return account_id
+
+
 def transfer_filters(
 	client: JiraClient,
 	old_account_id: str,
@@ -469,15 +502,15 @@ def parse_args() -> argparse.Namespace:
 	)
 	parser.add_argument(
 		"-o",
-		"--old-account-id",
+		"--old-email",
 		required=True,
-		help="Atlassian account ID of the departing user",
+		help="Email address of the departing user",
 	)
 	parser.add_argument(
 		"-n",
-		"--new-account-id",
+		"--new-email",
 		required=True,
-		help="Atlassian account ID of the replacement user",
+		help="Email address of the replacement user",
 	)
 	parser.add_argument(
 		"-d",
@@ -502,11 +535,18 @@ def main() -> int:
 		print(color_text("ATLASSIAN_SITE is empty after normalization.", RED))
 		return 1
 
-	if args.old_account_id == args.new_account_id:
-		print(color_text("Old and new account IDs must be different.", RED))
+	if args.old_email.strip().lower() == args.new_email.strip().lower():
+		print(color_text("Old and new email addresses must be different.", RED))
 		return 1
 
 	client = JiraClient(base_url, env["JIRA_EMAIL"], env["JIRA_PAT"])
+
+	try:
+		old_account_id = lookup_account_id_by_email(client, args.old_email.strip())
+		new_account_id = lookup_account_id_by_email(client, args.new_email.strip())
+	except RuntimeError as exc:
+		print(color_text(str(exc), RED))
+		return 1
 
 	rows: List[CsvRow] = []
 	total_errors = 0
@@ -514,29 +554,29 @@ def main() -> int:
 	try:
 		filters_processed, filter_errors = transfer_filters(
 			client,
-			args.old_account_id,
-			args.new_account_id,
+			old_account_id,
+			new_account_id,
 			args.dry_run,
 			rows,
 		)
 		dashboards_processed, dashboard_errors = transfer_dashboards(
 			client,
-			args.old_account_id,
-			args.new_account_id,
+			old_account_id,
+			new_account_id,
 			args.dry_run,
 			rows,
 		)
 		issues_processed, issue_errors = transfer_issue_assignments(
 			client,
-			args.old_account_id,
-			args.new_account_id,
+			old_account_id,
+			new_account_id,
 			args.dry_run,
 			rows,
 		)
 		boards_processed, board_errors = process_boards(
 			client,
-			args.old_account_id,
-			args.new_account_id,
+			old_account_id,
+			new_account_id,
 			args.dry_run,
 			rows,
 		)

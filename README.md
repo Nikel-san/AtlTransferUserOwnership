@@ -1,6 +1,6 @@
 # AtlTransferUserOwnership
 
-AtlTransferUserOwnership transfers Jira ownership and assignment responsibilities from one Atlassian account to another.
+AtlTransferUserOwnership transfers Jira ownership and assignment responsibilities from one Jira user to another.
 
 The script processes:
 - Filters owned by the old account
@@ -14,8 +14,8 @@ Board admin removal is not fully automatable through Jira APIs, so boards are fl
 
 | Option | Required | Description |
 |---|---|---|
-| `-o`, `--old-account-id` | Yes | Atlassian account ID of the departing user |
-| `-n`, `--new-account-id` | Yes | Atlassian account ID of the replacement user |
+| `-o`, `--old-email` | Yes | Email address of the departing user |
+| `-n`, `--new-email` | Yes | Email address of the replacement user |
 | `-d`, `--dry-run` | No | Preview all actions without applying API updates |
 | `-f`, `--out` | No | Output CSV path. Default: `transfer_user_ownership_<UTC timestamp>.csv` |
 
@@ -33,8 +33,8 @@ Dry-run preview:
 
 ```bash
 python AtlTransferUserOwnership.py \
-	--old-account-id OLD_ACCOUNT_ID \
-	--new-account-id NEW_ACCOUNT_ID \
+	--old-email old.user@example.com \
+	--new-email new.user@example.com \
 	--dry-run
 ```
 
@@ -42,8 +42,8 @@ Dry-run preview with explicit CSV path:
 
 ```bash
 python AtlTransferUserOwnership.py \
-	--old-account-id OLD_ACCOUNT_ID \
-	--new-account-id NEW_ACCOUNT_ID \
+	--old-email old.user@example.com \
+	--new-email new.user@example.com \
 	--dry-run \
 	--out transfer_preview.csv
 ```
@@ -52,16 +52,16 @@ Live transfer:
 
 ```bash
 python AtlTransferUserOwnership.py \
-	--old-account-id OLD_ACCOUNT_ID \
-	--new-account-id NEW_ACCOUNT_ID
+	--old-email old.user@example.com \
+	--new-email new.user@example.com
 ```
 
 Live transfer with explicit CSV path:
 
 ```bash
 python AtlTransferUserOwnership.py \
-	--old-account-id OLD_ACCOUNT_ID \
-	--new-account-id NEW_ACCOUNT_ID \
+	--old-email old.user@example.com \
+	--new-email new.user@example.com \
 	--out transfer_result.csv
 ```
 
