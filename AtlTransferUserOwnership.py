@@ -568,6 +568,11 @@ def parse_args() -> argparse.Namespace:
 		)
 	)
 	parser.add_argument(
+		"-s",
+		"--site",
+		help="Jira Cloud site URL or hostname. Overrides ATLASSIAN_SITE when provided.",
+	)
+	parser.add_argument(
 		"-o",
 		"--old-email",
 		help="Email address of the departing user",
@@ -602,10 +607,22 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
 	args = parse_args()
 
-	env = require_env_vars(["ATLASSIAN_SITE", "JIRA_EMAIL", "JIRA_PAT"])
-	base_url = normalize_site(env["ATLASSIAN_SITE"])
+	env = require_env_vars(["JIRA_EMAIL", "JIRA_PAT"])
+	site_input = args.site.strip() if args.site else ""
+	if not site_input:
+		site_input = os.environ.get("ATLASSIAN_SITE", "").strip()
+	if not site_input:
+		print(
+			color_text(
+				"Provide Jira site via --site/-s or ATLASSIAN_SITE environment variable.",
+				RED,
+			)
+		)
+		return 1
+
+	base_url = normalize_site(site_input)
 	if not base_url:
-		print(color_text("ATLASSIAN_SITE is empty after normalization.", RED))
+		print(color_text("Jira site value is empty after normalization.", RED))
 		return 1
 
 	client = JiraClient(base_url, env["JIRA_EMAIL"], env["JIRA_PAT"])

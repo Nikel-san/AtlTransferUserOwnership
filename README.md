@@ -14,6 +14,7 @@ Board admin removal is not fully automatable through Jira APIs, so boards are fl
 
 | Option | Required | Description |
 |---|---|---|
+| `-s`, `--site` | No | Jira Cloud site URL or hostname. Overrides `ATLASSIAN_SITE` when provided. |
 | `-o`, `--old-email` | One of old pair | Email address of the departing user. Mutually exclusive with `--old-id`. |
 | `--old-id` | One of old pair | Jira account ID of the departing user. Mutually exclusive with `--old-email`. |
 | `-n`, `--new-email` | One of new pair | Email address of the replacement user. Mutually exclusive with `--new-id`. |
@@ -25,13 +26,18 @@ Identifier requirement:
 - You must provide exactly one identifier for the old user: `--old-email` or `--old-id`.
 - You must provide exactly one identifier for the new user: `--new-email` or `--new-id`.
 
-## Required Environment Variables
+## Environment Variables
 
-The script validates these variables at startup and exits with non-zero code if any are missing:
+The script validates these variables at startup and exits with non-zero code if required values are missing:
 
-- `ATLASSIAN_SITE` - Atlassian Cloud site URL or hostname (for example `your-site.atlassian.net`)
-- `JIRA_EMAIL` - Jira user email used for API authentication
-- `JIRA_PAT` - Jira personal access token
+- `JIRA_EMAIL` (required) - Jira user email used for API authentication
+- `JIRA_PAT` (required) - Jira personal access token
+- `ATLASSIAN_SITE` (optional fallback) - Atlassian Cloud site URL or hostname (for example `your-site.atlassian.net`)
+
+Site resolution priority:
+- `--site` / `-s` CLI argument, if provided
+- `ATLASSIAN_SITE` environment variable
+- Exit with a clear error when neither is set
 
 By default, the script resolves users from `--old-email` and `--new-email`. If Jira cannot resolve an external/non-managed account by email, provide `--old-id` and/or `--new-id` to bypass email lookup for that side.
 
@@ -43,6 +49,7 @@ Dry-run preview:
 
 ```bash
 python AtlTransferUserOwnership.py \
+	--site https://your-site.atlassian.net \
 	--old-email old.user@example.com \
 	--new-email new.user@example.com \
 	--dry-run
