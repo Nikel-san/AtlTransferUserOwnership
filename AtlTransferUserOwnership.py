@@ -430,6 +430,7 @@ def transfer_issue_assignments(
 	old_account_id: str,
 	new_account_id: str,
 	dry_run: bool,
+	notify: bool,
 	rows: List[CsvRow],
 ) -> Tuple[int, int]:
 	jql = f'assignee = "{old_account_id}"'
@@ -452,6 +453,7 @@ def transfer_issue_assignments(
 			status, payload = client.request_json(
 				"PUT",
 				f"/rest/api/3/issue/{key}",
+				query={"notifyUsers": "true" if notify else "false"},
 				payload={"fields": {"assignee": {"accountId": new_account_id}}},
 			)
 			if status < 200 or status >= 300:
@@ -477,6 +479,7 @@ def transfer_issue_reporters(
 	old_account_id: str,
 	new_account_id: str,
 	dry_run: bool,
+	notify: bool,
 	rows: List[CsvRow],
 ) -> Tuple[int, int]:
 	jql = f'reporter = "{old_account_id}"'
@@ -499,6 +502,7 @@ def transfer_issue_reporters(
 			status, payload = client.request_json(
 				"PUT",
 				f"/rest/api/3/issue/{key}",
+				query={"notifyUsers": "true" if notify else "false"},
 				payload={"fields": {"reporter": {"accountId": new_account_id}}},
 			)
 			if status < 200 or status >= 300:
@@ -770,6 +774,12 @@ def parse_args() -> argparse.Namespace:
 		help="Preview all changes without applying them",
 	)
 	parser.add_argument(
+		"-N",
+		"--notify",
+		action="store_true",
+		help="Send email notifications for each issue transfer (default: disabled)",
+	)
+	parser.add_argument(
 		"-f",
 		"--out",
 		help="Path to output CSV file. Default: transfer_user_ownership_<UTC timestamp>.csv",
@@ -874,6 +884,7 @@ def main() -> int:
 			old_account_id,
 			new_account_id,
 			args.dry_run,
+			args.notify,
 			rows,
 		)
 		reporters_processed, reporter_errors = transfer_issue_reporters(
@@ -881,6 +892,7 @@ def main() -> int:
 			old_account_id,
 			new_account_id,
 			args.dry_run,
+			args.notify,
 			rows,
 		)
 		boards_processed, board_errors = process_boards(

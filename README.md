@@ -23,6 +23,7 @@ Board admin removal is not fully automatable through Jira APIs, so boards are fl
 | `-n`, `--new-email` | No (required for transfer) | Email address of the replacement user. Mutually exclusive with `--new-id`. Omit together with `--new-id` to run audit mode. |
 | `--new-id` | No (required for transfer) | Jira account ID of the replacement user. Mutually exclusive with `--new-email`. Omit together with `--new-email` to run audit mode. |
 | `-d`, `--dry-run` | No | Preview all actions without applying API updates |
+| `-N`, `--notify` | No | Send email notifications for each issue transfer. By default, issue assignee/reporter transfers suppress notifications. |
 | `-f`, `--out` | No | Output CSV path. Default: `transfer_user_ownership_<UTC timestamp>.csv` |
 
 Identifier requirement:
@@ -44,6 +45,8 @@ Site resolution priority:
 - Exit with a clear error when neither is set
 
 By default, the script resolves users from `--old-email` and `--new-email`. If Jira cannot resolve an external/non-managed account by email, provide `--old-id` and/or `--new-id` to bypass email lookup for that side.
+
+Issue assignee and reporter transfers suppress email notifications by default. Pass `-N` or `--notify` to opt in to notifications for those transfers.
 
 When resolving by email, the script first looks for an exact Jira email match. If Jira returns exactly one matching user but the `emailAddress` field is hidden by privacy rules, the script trusts that single result and continues with its account ID.
 
