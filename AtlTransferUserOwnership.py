@@ -202,6 +202,68 @@ def get_paginated(
 	return items
 
 
+def get_jql_search_issues(
+	client: JiraClient,
+	jql: str,
+	fields: str,
+	page_size: int = 100,
+) -> List[Dict[str, Any]]:
+	issues: List[Dict[str, Any]] = []
+	next_page_token: Optional[str] = None
+	start_at = 0
+
+	while True:
+		query: Dict[str, Any] = {
+			"jql": jql,
+			"fields": fields,
+			"maxResults": page_size,
+		}
+		if next_page_token:
+			query["nextPageToken"] = next_page_token
+		else:
+			query["startAt"] = start_at
+
+		status, payload = client.request_json(
+			"GET", "/rest/api/3/search/jql", query=query
+		)
+		if status < 200 or status >= 300:
+			raise RuntimeError(
+				f"GET /rest/api/3/search/jql failed with status {status}: {payload}"
+			)
+
+		page_issues = payload.get("issues", []) if isinstance(payload, dict) else []
+		if not isinstance(page_issues, list):
+			page_issues = []
+
+		issues.extend(page_issues)
+
+		next_page_token = None
+		if isinstance(payload, dict):
+			token_value = payload.get("nextPageToken")
+			if isinstance(token_value, str) and token_value:
+				next_page_token = token_value
+
+		if next_page_token:
+			continue
+
+		total = payload.get("total") if isinstance(payload, dict) else None
+		if total is not None:
+			if start_at + len(page_issues) >= int(total):
+				break
+			start_at += len(page_issues)
+			if not page_issues:
+				break
+			continue
+
+		is_last = payload.get("isLast") if isinstance(payload, dict) else True
+		if is_last or not page_issues:
+			break
+
+		start_at += len(page_issues)
+
+	return issues
+
+
 def lookup_account_id_by_email(client: JiraClient, email: str) -> str:
 	status, payload = client.request_json(
 		"GET",
@@ -371,13 +433,7 @@ def transfer_issue_assignments(
 	rows: List[CsvRow],
 ) -> Tuple[int, int]:
 	jql = f'assignee = "{old_account_id}"'
-	issues = get_paginated(
-		client,
-		"/rest/api/3/search",
-		{"jql": jql, "fields": "summary,assignee"},
-		values_key="issues",
-		page_size=100,
-	)
+	issues = get_jql_search_issues(client, jql, "summary,assignee", page_size=100)
 
 	processed = 0
 	errors = 0
