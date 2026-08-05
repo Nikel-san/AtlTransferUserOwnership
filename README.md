@@ -27,6 +27,8 @@ The script validates these variables at startup and exits with non-zero code if 
 - `JIRA_EMAIL` - Jira user email used for API authentication
 - `JIRA_PAT` - Jira personal access token
 
+When resolving `--old-email` and `--new-email`, the script first looks for an exact Jira email match. If Jira returns exactly one matching user but the `emailAddress` field is hidden by privacy rules, the script trusts that single result and continues with its account ID.
+
 ## Usage
 
 Dry-run preview:

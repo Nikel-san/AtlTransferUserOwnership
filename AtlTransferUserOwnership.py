@@ -217,18 +217,29 @@ def lookup_account_id_by_email(client: JiraClient, email: str) -> str:
 		raise RuntimeError(f"Unexpected user search response for {email}: {payload}")
 
 	exact_match: Optional[Dict[str, Any]] = None
+	visible_candidates: List[Dict[str, Any]] = []
 	for user in payload:
 		if not isinstance(user, dict):
 			continue
+		visible_candidates.append(user)
 		user_email = user.get("emailAddress")
 		if isinstance(user_email, str) and user_email.lower() == email.lower():
 			exact_match = user
 			break
 
-	if exact_match is None:
+	match = exact_match
+	if match is None and len(visible_candidates) == 1:
+		match = visible_candidates[0]
+
+	if match is None:
+		if visible_candidates:
+			raise RuntimeError(
+				f"Found Jira users for {email}, but could not verify an exact email match. "
+				"Try a more specific email or verify the account has visible email metadata."
+			)
 		raise RuntimeError(f"No Jira user found for email address: {email}")
 
-	account_id = exact_match.get("accountId")
+	account_id = match.get("accountId")
 	if not isinstance(account_id, str) or not account_id:
 		raise RuntimeError(f"Jira user search did not return accountId for {email}")
 
