@@ -615,6 +615,13 @@ def main() -> int:
 	old_id = args.old_id.strip() if args.old_id else ""
 	new_id = args.new_id.strip() if args.new_id else ""
 
+	if old_email and old_id:
+		print(color_text("Cannot specify both --old-email and --old-id", RED))
+		return 1
+	if new_email and new_id:
+		print(color_text("Cannot specify both --new-email and --new-id", RED))
+		return 1
+
 	if not old_id and not old_email:
 		print(color_text("Provide either --old-email or --old-id.", RED))
 		return 1

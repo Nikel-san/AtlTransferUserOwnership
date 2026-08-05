@@ -14,12 +14,16 @@ Board admin removal is not fully automatable through Jira APIs, so boards are fl
 
 | Option | Required | Description |
 |---|---|---|
-| `-o`, `--old-email` | Yes | Email address of the departing user |
-| `-n`, `--new-email` | Yes | Email address of the replacement user |
-| `--old-id` | No | Jira account ID of the departing user. Bypasses `--old-email` lookup. |
-| `--new-id` | No | Jira account ID of the replacement user. Bypasses `--new-email` lookup. |
+| `-o`, `--old-email` | One of old pair | Email address of the departing user. Mutually exclusive with `--old-id`. |
+| `--old-id` | One of old pair | Jira account ID of the departing user. Mutually exclusive with `--old-email`. |
+| `-n`, `--new-email` | One of new pair | Email address of the replacement user. Mutually exclusive with `--new-id`. |
+| `--new-id` | One of new pair | Jira account ID of the replacement user. Mutually exclusive with `--new-email`. |
 | `-d`, `--dry-run` | No | Preview all actions without applying API updates |
 | `-f`, `--out` | No | Output CSV path. Default: `transfer_user_ownership_<UTC timestamp>.csv` |
+
+Identifier requirement:
+- You must provide exactly one identifier for the old user: `--old-email` or `--old-id`.
+- You must provide exactly one identifier for the new user: `--new-email` or `--new-id`.
 
 ## Required Environment Variables
 
