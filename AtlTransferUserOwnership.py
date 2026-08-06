@@ -166,15 +166,12 @@ def get_paginated(
 	query: Dict[str, Any],
 	values_key: str,
 	page_size: int = 50,
-	extra_query: Optional[Dict[str, Any]] = None,
 ) -> List[Dict[str, Any]]:
 	items: List[Dict[str, Any]] = []
 	start_at = 0
 
 	while True:
 		q = dict(query)
-		if extra_query:
-			q.update({k: v for k, v in extra_query.items() if v is not None})
 		q["startAt"] = start_at
 		q["maxResults"] = page_size
 		status, payload = client.request_json("GET", path, query=q)
@@ -319,9 +316,8 @@ def get_filters_for_account(
 		return get_paginated(
 			client,
 			"/rest/api/3/filter/search",
-			{"accountId": account_id},
+			{"overrideSharePermissions": "true", "accountId": account_id},
 			values_key="values",
-			extra_query={"overrideSharePermissions": "true"},
 		)
 	except RuntimeError as exc:
 		raise RuntimeError(
