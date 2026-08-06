@@ -350,8 +350,8 @@ def transfer_filters(
 		if not dry_run:
 			status, payload = client.request_json(
 				"PUT",
-				f"/rest/api/3/filter/{filter_id}",
-				payload={"owner": {"accountId": new_account_id}},
+				f"/rest/api/3/filter/{filter_id}/owner",
+				payload={"accountId": new_account_id},
 			)
 			if status < 200 or status >= 300:
 				errors += 1
