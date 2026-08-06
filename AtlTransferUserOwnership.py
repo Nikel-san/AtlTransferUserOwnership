@@ -166,12 +166,15 @@ def get_paginated(
 	query: Dict[str, Any],
 	values_key: str,
 	page_size: int = 50,
+	extra_query: Optional[Dict[str, Any]] = None,
 ) -> List[Dict[str, Any]]:
 	items: List[Dict[str, Any]] = []
 	start_at = 0
 
 	while True:
 		q = dict(query)
+		if extra_query:
+			q.update({k: v for k, v in extra_query.items() if v is not None})
 		q["startAt"] = start_at
 		q["maxResults"] = page_size
 		status, payload = client.request_json("GET", path, query=q)
@@ -308,6 +311,26 @@ def lookup_account_id_by_email(client: JiraClient, email: str) -> str:
 	return account_id
 
 
+def get_filters_for_account(
+	client: JiraClient,
+	account_id: str,
+) -> List[Dict[str, Any]]:
+	try:
+		return get_paginated(
+			client,
+			"/rest/api/3/filter/search",
+			{"accountId": account_id},
+			values_key="values",
+			extra_query={"overrideSharePermissions": "true"},
+		)
+	except RuntimeError as exc:
+		raise RuntimeError(
+			"Unable to discover Jira filters with overrideSharePermissions=true. "
+			"This requires a Jira admin-level PAT; verify the token has admin permissions "
+			"and that the site accepts the parameter."
+		) from exc
+
+
 def transfer_filters(
 	client: JiraClient,
 	old_account_id: str,
@@ -315,12 +338,7 @@ def transfer_filters(
 	dry_run: bool,
 	rows: List[CsvRow],
 ) -> Tuple[int, int]:
-	filters = get_paginated(
-		client,
-		"/rest/api/3/filter/search",
-		{"accountId": old_account_id},
-		values_key="values",
-	)
+	filters = get_filters_for_account(client, old_account_id)
 	processed = 0
 	errors = 0
 
@@ -551,12 +569,7 @@ def _print_audit_group(title: str, items: List[Tuple[str, str]]) -> None:
 
 
 def run_audit_mode(client: JiraClient, old_account_id: str) -> int:
-	filters = get_paginated(
-		client,
-		"/rest/api/3/filter/search",
-		{"accountId": old_account_id},
-		values_key="values",
-	)
+	filters = get_filters_for_account(client, old_account_id)
 	dashboards = get_paginated(
 		client,
 		"/rest/api/3/dashboard/search",
