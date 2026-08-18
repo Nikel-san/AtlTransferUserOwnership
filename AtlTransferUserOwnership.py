@@ -373,7 +373,7 @@ def get_dashboards_for_account(
 		) from exc
 
 	try:
-		all_dashboards = get_paginated(
+		all_visible = get_paginated(
 			client,
 			"/rest/api/3/dashboard/search",
 			{},
@@ -385,16 +385,27 @@ def get_dashboards_for_account(
 			"This requires a Jira admin-level PAT with access to dashboard metadata."
 		) from exc
 
-	for index, dashboard in enumerate(all_dashboards, start=1):
-		dashboard_id = str(dashboard.get("id", ""))
-		if not dashboard_id or dashboard_id in seen_ids:
+	if all_visible:
+		try:
+			max_id = max(int(str(item.get("id", "0"))) for item in all_visible if str(item.get("id", "0")).isdigit())
+		except ValueError:
+			max_id = 20000
+	else:
+		max_id = 20000
+
+	max_scan_id = max_id + 100
+	for dash_id in range(1, max_scan_id + 1):
+		if dash_id % 1000 == 0:
+			print(f"Scanning dashboard ID {dash_id}/{max_scan_id}...")
+
+		str_id = str(dash_id)
+		if str_id in seen_ids:
 			continue
 
-		print(f"Scanning dashboard {index}/{len(all_dashboards)}...")
 		time.sleep(0.1)
-		status, payload = client.request_json(
-			"GET", f"/rest/api/3/dashboard/{dashboard_id}"
-		)
+		status, payload = client.request_json("GET", f"/rest/api/3/dashboard/{str_id}")
+		if status == 404:
+			continue
 		if status < 200 or status >= 300:
 			continue
 		if _dashboard_is_owned_by(payload, account_id):
