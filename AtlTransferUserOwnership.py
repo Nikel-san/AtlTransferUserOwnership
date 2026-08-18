@@ -402,7 +402,7 @@ def get_dashboards_for_account(
 		if str_id in seen_ids:
 			continue
 
-		time.sleep(0.1)
+		time.sleep(0.05)
 		status, payload = client.request_json("GET", f"/rest/api/3/dashboard/{str_id}")
 		if status == 404:
 			continue
