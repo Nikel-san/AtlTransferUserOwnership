@@ -1,7 +1,5 @@
 # General Procedure for Copilot
 
-Source: https://iderawebdev.atlassian.net/wiki/spaces/CT/pages/3742892034/General+Procedure+for+Copilot
-Retrieved: 2026-08-05
 
 1. Never assume anything, always check.
 2. Never deviate from the General Procedure.
