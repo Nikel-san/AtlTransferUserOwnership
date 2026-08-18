@@ -11,9 +11,7 @@ The script processes:
 - Issues currently reported by the old account
 - Boards where the old account is an admin
 
-Filter and dashboard discovery use `overrideSharePermissions=true` so private objects can be discovered and transferred when the authenticated PAT has Jira admin permissions. Because the dashboard search endpoint ignores this override in Jira Cloud, the script uses a hybrid scan: it first tries the search API for shared dashboards, then performs a throttled numeric-ID brute-force scan to find private dashboards owned by the target user. The fallback iterates dashboard IDs directly instead of looping over the search results, because the search API never exposes other users' private dashboards. If Jira rejects the parameter, the script exits with a clear error message instead of silently skipping private filters or dashboards.
-
-Use `--skip-dashboards` to bypass all dashboard discovery and transfer work when dashboard ownership transfer is not needed or the instance is very large.
+Filter discovery uses `overrideSharePermissions=true` so private filters can be discovered and transferred when the authenticated PAT has Jira admin permissions. Dashboard discovery is limited to dashboards shared through the Jira search API; private dashboards cannot be discovered or transferred via the Jira Cloud REST API even with admin permissions. The API returns 404 for private dashboards, so the script warns users to ask the departing employee to share private dashboards before running the transfer.
 
 Board admin removal is not fully automatable through Jira APIs, so boards are flagged for manual review in the CSV output.
 
@@ -29,6 +27,8 @@ Board admin removal is not fully automatable through Jira APIs, so boards are fl
 | `-d`, `--dry-run` | No | Preview all actions without applying API updates |
 | `-N`, `--notify` | No | Send email notifications for each issue transfer. By default, issue assignee/reporter transfers suppress notifications. |
 | `-f`, `--out` | No | Output CSV path. Default: `transfer_user_ownership_<UTC timestamp>.csv` |
+
+Shared dashboards are transferred automatically when the API returns them through dashboard search. Private dashboards are not discoverable via the Jira Cloud REST API and require a manual workaround: ask the departing user to share them before the transfer.
 
 Identifier requirement:
 - You must provide exactly one identifier for the old user: `--old-email` or `--old-id`.

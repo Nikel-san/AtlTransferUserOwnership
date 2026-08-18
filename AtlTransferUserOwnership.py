@@ -327,91 +327,27 @@ def get_filters_for_account(
 		) from exc
 
 
-def _dashboard_is_owned_by(payload: Any, account_id: str) -> bool:
-	if not isinstance(payload, dict):
-		return False
-
-	owner = payload.get("owner")
-	if isinstance(owner, dict):
-		owner_account_id = owner.get("accountId")
-		if isinstance(owner_account_id, str) and owner_account_id == account_id:
-			return True
-
-	return False
-
-
 def get_dashboards_for_account(
 	client: JiraClient,
 	account_id: str,
 ) -> List[Dict[str, Any]]:
-	results: List[Dict[str, Any]] = []
-	seen_ids: set[str] = set()
+	return get_paginated(
+		client,
+		"/rest/api/3/dashboard/search",
+		{"accountId": account_id},
+		values_key="values",
+	)
 
-	def add_dashboard(item: Any) -> None:
-		if not isinstance(item, dict):
-			return
-		dashboard_id = str(item.get("id", ""))
-		if not dashboard_id or dashboard_id in seen_ids:
-			return
-		seen_ids.add(dashboard_id)
-		results.append(item)
 
-	try:
-		shared_dashboards = get_paginated(
-			client,
-			"/rest/api/3/dashboard/search",
-			{"overrideSharePermissions": "true", "accountId": account_id},
-			values_key="values",
+def print_private_dashboard_warning() -> None:
+	print(
+		color_text(
+			"WARNING: Private dashboards cannot be discovered or transferred via the Jira Cloud REST API. "
+			"The API returns 404 for private dashboards even with admin permissions. "
+			"To transfer private dashboards, ask the user to share them before departure.",
+			YELLOW,
 		)
-		for dashboard in shared_dashboards:
-			add_dashboard(dashboard)
-	except RuntimeError as exc:
-		raise RuntimeError(
-			"Unable to discover Jira dashboards with overrideSharePermissions=true. "
-			"This requires a Jira admin-level PAT; verify the token has admin permissions "
-			"and that the site accepts the parameter."
-		) from exc
-
-	try:
-		all_visible = get_paginated(
-			client,
-			"/rest/api/3/dashboard/search",
-			{},
-			values_key="values",
-		)
-	except RuntimeError as exc:
-		raise RuntimeError(
-			"Unable to discover Jira dashboards without account filtering. "
-			"This requires a Jira admin-level PAT with access to dashboard metadata."
-		) from exc
-
-	if all_visible:
-		try:
-			max_id = max(int(str(item.get("id", "0"))) for item in all_visible if str(item.get("id", "0")).isdigit())
-		except ValueError:
-			max_id = 20000
-	else:
-		max_id = 20000
-
-	max_scan_id = max_id + 100
-	for dash_id in range(1, max_scan_id + 1):
-		if dash_id % 1000 == 0:
-			print(f"Scanning dashboard ID {dash_id}/{max_scan_id}...")
-
-		str_id = str(dash_id)
-		if str_id in seen_ids:
-			continue
-
-		time.sleep(0.05)
-		status, payload = client.request_json("GET", f"/rest/api/3/dashboard/{str_id}")
-		if status == 404:
-			continue
-		if status < 200 or status >= 300:
-			continue
-		if _dashboard_is_owned_by(payload, account_id):
-			add_dashboard(payload)
-
-	return results
+	)
 
 
 def transfer_filters(
@@ -467,12 +403,9 @@ def transfer_dashboards(
 	new_account_id: str,
 	dry_run: bool,
 	rows: List[CsvRow],
-	skip_dashboards: bool = False,
 ) -> Tuple[int, int]:
-	if skip_dashboards:
-		return 0, 0
-
 	dashboards = get_dashboards_for_account(client, old_account_id)
+	print_private_dashboard_warning()
 	processed = 0
 	errors = 0
 
@@ -653,14 +586,10 @@ def _print_audit_group(title: str, items: List[Tuple[str, str]]) -> None:
 def run_audit_mode(
 	client: JiraClient,
 	old_account_id: str,
-	skip_dashboards: bool = False,
 ) -> int:
 	filters = get_filters_for_account(client, old_account_id)
-	if skip_dashboards:
-		dashboards: List[Dict[str, Any]] = []
-		print("Dashboard scan skipped by --skip-dashboards flag.")
-	else:
-		dashboards = get_dashboards_for_account(client, old_account_id)
+	dashboards = get_dashboards_for_account(client, old_account_id)
+	print_private_dashboard_warning()
 	assignee_issues = get_jql_search_issues(
 		client,
 		f'assignee = "{old_account_id}"',
@@ -882,11 +811,6 @@ def parse_args() -> argparse.Namespace:
 		"--out",
 		help="Path to output CSV file. Default: transfer_user_ownership_<UTC timestamp>.csv",
 	)
-	parser.add_argument(
-		"--skip-dashboards",
-		action="store_true",
-		help="Skip dashboard discovery and processing entirely (useful on large Jira instances)",
-	)
 	return parser.parse_args()
 
 
@@ -959,7 +883,7 @@ def main() -> int:
 		if args.dry_run:
 			print("Audit mode selected; --dry-run is redundant because no changes are made.")
 		try:
-			return run_audit_mode(client, old_account_id, args.skip_dashboards)
+			return run_audit_mode(client, old_account_id)
 		except RuntimeError as exc:
 			print(color_text(str(exc), RED))
 			return 1
@@ -975,18 +899,13 @@ def main() -> int:
 			args.dry_run,
 			rows,
 		)
-		if args.skip_dashboards:
-			dashboards_processed, dashboard_errors = (0, 0)
-			print("Dashboard processing skipped by --skip-dashboards flag.")
-		else:
-			dashboards_processed, dashboard_errors = transfer_dashboards(
-				client,
-				old_account_id,
-				new_account_id,
-				args.dry_run,
-				rows,
-				args.skip_dashboards,
-			)
+		dashboards_processed, dashboard_errors = transfer_dashboards(
+			client,
+			old_account_id,
+			new_account_id,
+			args.dry_run,
+			rows,
+		)
 		issues_processed, issue_errors = transfer_issue_assignments(
 			client,
 			old_account_id,
