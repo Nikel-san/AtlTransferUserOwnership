@@ -11,7 +11,9 @@ The script processes:
 - Issues currently reported by the old account
 - Boards where the old account is an admin
 
-Filter and dashboard discovery use `overrideSharePermissions=true` so private objects can be discovered and transferred when the authenticated PAT has Jira admin permissions. If Jira rejects the parameter, the script exits with a clear error message instead of silently skipping private filters or dashboards.
+Filter and dashboard discovery use `overrideSharePermissions=true` so private objects can be discovered and transferred when the authenticated PAT has Jira admin permissions. Because the dashboard search endpoint ignores this override in Jira Cloud, the script uses a hybrid scan: it first tries the search API for shared dashboards, then falls back to a throttled brute-force pass across dashboard IDs to find private dashboards owned by the target user. If Jira rejects the parameter, the script exits with a clear error message instead of silently skipping private filters or dashboards.
+
+Use `--skip-dashboards` to bypass all dashboard discovery and transfer work when dashboard ownership transfer is not needed or the instance is very large.
 
 Board admin removal is not fully automatable through Jira APIs, so boards are flagged for manual review in the CSV output.
 

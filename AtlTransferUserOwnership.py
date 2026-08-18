@@ -327,23 +327,80 @@ def get_filters_for_account(
 		) from exc
 
 
+def _dashboard_is_owned_by(payload: Any, account_id: str) -> bool:
+	if not isinstance(payload, dict):
+		return False
+
+	owner = payload.get("owner")
+	if isinstance(owner, dict):
+		owner_account_id = owner.get("accountId")
+		if isinstance(owner_account_id, str) and owner_account_id == account_id:
+			return True
+
+	return False
+
+
 def get_dashboards_for_account(
 	client: JiraClient,
 	account_id: str,
 ) -> List[Dict[str, Any]]:
+	results: List[Dict[str, Any]] = []
+	seen_ids: set[str] = set()
+
+	def add_dashboard(item: Any) -> None:
+		if not isinstance(item, dict):
+			return
+		dashboard_id = str(item.get("id", ""))
+		if not dashboard_id or dashboard_id in seen_ids:
+			return
+		seen_ids.add(dashboard_id)
+		results.append(item)
+
 	try:
-		return get_paginated(
+		shared_dashboards = get_paginated(
 			client,
 			"/rest/api/3/dashboard/search",
 			{"overrideSharePermissions": "true", "accountId": account_id},
 			values_key="values",
 		)
+		for dashboard in shared_dashboards:
+			add_dashboard(dashboard)
 	except RuntimeError as exc:
 		raise RuntimeError(
 			"Unable to discover Jira dashboards with overrideSharePermissions=true. "
 			"This requires a Jira admin-level PAT; verify the token has admin permissions "
 			"and that the site accepts the parameter."
 		) from exc
+
+	try:
+		all_dashboards = get_paginated(
+			client,
+			"/rest/api/3/dashboard/search",
+			{},
+			values_key="values",
+		)
+	except RuntimeError as exc:
+		raise RuntimeError(
+			"Unable to discover Jira dashboards without account filtering. "
+			"This requires a Jira admin-level PAT with access to dashboard metadata."
+		) from exc
+
+	for index, dashboard in enumerate(all_dashboards, start=1):
+		dashboard_id = str(dashboard.get("id", ""))
+		if not dashboard_id or dashboard_id in seen_ids:
+			continue
+
+		print(f"Scanning dashboard {index}/{len(all_dashboards)}...")
+		time.sleep(0.1)
+		status, payload = client.request_json(
+			"GET", f"/rest/api/3/dashboard/{dashboard_id}"
+		)
+		if status < 200 or status >= 300:
+			continue
+		if _dashboard_is_owned_by(payload, account_id):
+			add_dashboard(payload)
+
+	return results
 
 
 def transfer_filters(
@@ -399,7 +456,11 @@ def transfer_dashboards(
 	new_account_id: str,
 	dry_run: bool,
 	rows: List[CsvRow],
+	skip_dashboards: bool = False,
 ) -> Tuple[int, int]:
+	if skip_dashboards:
+		return 0, 0
+
 	dashboards = get_dashboards_for_account(client, old_account_id)
 	processed = 0
 	errors = 0
@@ -578,9 +639,17 @@ def _print_audit_group(title: str, items: List[Tuple[str, str]]) -> None:
 		print(f"  - {entity_id}: {display}")
 
 
-def run_audit_mode(client: JiraClient, old_account_id: str) -> int:
+def run_audit_mode(
+	client: JiraClient,
+	old_account_id: str,
+	skip_dashboards: bool = False,
+) -> int:
 	filters = get_filters_for_account(client, old_account_id)
-	dashboards = get_dashboards_for_account(client, old_account_id)
+	if skip_dashboards:
+		dashboards: List[Dict[str, Any]] = []
+		print("Dashboard scan skipped by --skip-dashboards flag.")
+	else:
+		dashboards = get_dashboards_for_account(client, old_account_id)
 	assignee_issues = get_jql_search_issues(
 		client,
 		f'assignee = "{old_account_id}"',
@@ -802,6 +871,11 @@ def parse_args() -> argparse.Namespace:
 		"--out",
 		help="Path to output CSV file. Default: transfer_user_ownership_<UTC timestamp>.csv",
 	)
+	parser.add_argument(
+		"--skip-dashboards",
+		action="store_true",
+		help="Skip dashboard discovery and processing entirely (useful on large Jira instances)",
+	)
 	return parser.parse_args()
 
 
@@ -874,7 +948,7 @@ def main() -> int:
 		if args.dry_run:
 			print("Audit mode selected; --dry-run is redundant because no changes are made.")
 		try:
-			return run_audit_mode(client, old_account_id)
+			return run_audit_mode(client, old_account_id, args.skip_dashboards)
 		except RuntimeError as exc:
 			print(color_text(str(exc), RED))
 			return 1
@@ -890,13 +964,18 @@ def main() -> int:
 			args.dry_run,
 			rows,
 		)
-		dashboards_processed, dashboard_errors = transfer_dashboards(
-			client,
-			old_account_id,
-			new_account_id,
-			args.dry_run,
-			rows,
-		)
+		if args.skip_dashboards:
+			dashboards_processed, dashboard_errors = (0, 0)
+			print("Dashboard processing skipped by --skip-dashboards flag.")
+		else:
+			dashboards_processed, dashboard_errors = transfer_dashboards(
+				client,
+				old_account_id,
+				new_account_id,
+				args.dry_run,
+				rows,
+				args.skip_dashboards,
+			)
 		issues_processed, issue_errors = transfer_issue_assignments(
 			client,
 			old_account_id,
