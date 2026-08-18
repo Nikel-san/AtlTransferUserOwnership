@@ -327,6 +327,25 @@ def get_filters_for_account(
 		) from exc
 
 
+def get_dashboards_for_account(
+	client: JiraClient,
+	account_id: str,
+) -> List[Dict[str, Any]]:
+	try:
+		return get_paginated(
+			client,
+			"/rest/api/3/dashboard/search",
+			{"overrideSharePermissions": "true", "accountId": account_id},
+			values_key="values",
+		)
+	except RuntimeError as exc:
+		raise RuntimeError(
+			"Unable to discover Jira dashboards with overrideSharePermissions=true. "
+			"This requires a Jira admin-level PAT; verify the token has admin permissions "
+			"and that the site accepts the parameter."
+		) from exc
+
+
 def transfer_filters(
 	client: JiraClient,
 	old_account_id: str,
@@ -381,12 +400,7 @@ def transfer_dashboards(
 	dry_run: bool,
 	rows: List[CsvRow],
 ) -> Tuple[int, int]:
-	dashboards = get_paginated(
-		client,
-		"/rest/api/3/dashboard/search",
-		{"accountId": old_account_id},
-		values_key="values",
-	)
+	dashboards = get_dashboards_for_account(client, old_account_id)
 	processed = 0
 	errors = 0
 
@@ -566,12 +580,7 @@ def _print_audit_group(title: str, items: List[Tuple[str, str]]) -> None:
 
 def run_audit_mode(client: JiraClient, old_account_id: str) -> int:
 	filters = get_filters_for_account(client, old_account_id)
-	dashboards = get_paginated(
-		client,
-		"/rest/api/3/dashboard/search",
-		{"accountId": old_account_id},
-		values_key="values",
-	)
+	dashboards = get_dashboards_for_account(client, old_account_id)
 	assignee_issues = get_jql_search_issues(
 		client,
 		f'assignee = "{old_account_id}"',

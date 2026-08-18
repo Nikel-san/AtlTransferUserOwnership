@@ -11,7 +11,7 @@ The script processes:
 - Issues currently reported by the old account
 - Boards where the old account is an admin
 
-Filter discovery uses `overrideSharePermissions=true` so private filters can be discovered and transferred when the authenticated PAT has Jira admin permissions. If Jira rejects the parameter, the script exits with a clear error message instead of silently skipping private filters.
+Filter and dashboard discovery use `overrideSharePermissions=true` so private objects can be discovered and transferred when the authenticated PAT has Jira admin permissions. If Jira rejects the parameter, the script exits with a clear error message instead of silently skipping private filters or dashboards.
 
 Board admin removal is not fully automatable through Jira APIs, so boards are flagged for manual review in the CSV output.
 
