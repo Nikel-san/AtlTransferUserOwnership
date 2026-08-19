@@ -429,8 +429,8 @@ def transfer_dashboards(
 					"action": "changeOwner",
 					"entityIds": [int(dashboard_id)],
 					"changeOwnerDetails": {
-						"accountId": new_account_id,
-						"autofixEnabled": True,
+						"newOwner": new_account_id,
+						"autofixName": False,
 					},
 					"extendAdminPermissions": True,
 				},
