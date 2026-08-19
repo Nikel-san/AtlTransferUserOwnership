@@ -345,9 +345,9 @@ def get_dashboards_for_account(
 def print_private_dashboard_warning() -> None:
 	print(
 		color_text(
-			"WARNING: Private dashboards cannot be discovered or transferred via the Jira Cloud REST API. "
-			"The API returns 404 for private dashboards even with admin permissions. "
-			"To transfer private dashboards, ask the user to share them before departure.",
+			"NOTE: Private dashboards may not appear in search results. Use --dashboard-ids / -D "
+			"to specify known private dashboard IDs for transfer. Transfer uses "
+			"extendAdminPermissions and works for private dashboards.",
 			YELLOW,
 		)
 	)
@@ -406,8 +406,16 @@ def transfer_dashboards(
 	new_account_id: str,
 	dry_run: bool,
 	rows: List[CsvRow],
+	extra_ids: Optional[List[str]] = None,
 ) -> Tuple[int, int]:
 	dashboards = get_dashboards_for_account(client, old_account_id)
+	discovered_ids = {str(item.get("id", "")) for item in dashboards}
+	if extra_ids:
+		for extra_id in extra_ids:
+			if extra_id not in discovered_ids:
+				dashboards.append(
+					{"id": extra_id, "name": f"(private dashboard {extra_id})"}
+				)
 	print_private_dashboard_warning()
 	processed = 0
 	errors = 0
@@ -597,9 +605,16 @@ def _print_audit_group(title: str, items: List[Tuple[str, str]]) -> None:
 def run_audit_mode(
 	client: JiraClient,
 	old_account_id: str,
+	extra_ids: Optional[List[str]] = None,
 ) -> int:
 	filters = get_filters_for_account(client, old_account_id)
 	dashboards = get_dashboards_for_account(client, old_account_id)
+	discovered_ids = {str(item.get("id", "")) for item in dashboards}
+	additional_dashboard_items = [
+		(extra_id, f"(private dashboard {extra_id})")
+		for extra_id in (extra_ids or [])
+		if extra_id not in discovered_ids
+	]
 	print_private_dashboard_warning()
 	assignee_issues = get_jql_search_issues(
 		client,
@@ -671,6 +686,10 @@ def run_audit_mode(
 	_print_audit_group("Boards", board_items)
 	_print_audit_group("Filters", filter_items)
 	_print_audit_group("Dashboards", dashboard_items)
+	_print_audit_group(
+		"Additional private dashboards (user-specified)",
+		additional_dashboard_items,
+	)
 	_print_audit_group("Issues as reporter", reporter_items)
 	_print_audit_group("Issues as assignee", assignee_items)
 
@@ -834,6 +853,15 @@ def parse_args() -> argparse.Namespace:
 		"--out",
 		help="Path to output CSV file. Default: transfer_user_ownership_<UTC timestamp>.csv",
 	)
+	parser.add_argument(
+		"-D",
+		"--dashboard-ids",
+		help=(
+			"Comma-separated list of additional dashboard IDs to transfer "
+			"(e.g. private dashboards not discoverable via search API). "
+			"These IDs are merged with any dashboards found via the search endpoint."
+		),
+	)
 	return parser.parse_args()
 
 
@@ -864,6 +892,18 @@ def main() -> int:
 	new_email = args.new_email.strip() if args.new_email else ""
 	old_id = args.old_id.strip() if args.old_id else ""
 	new_id = args.new_id.strip() if args.new_id else ""
+	extra_dashboard_ids: List[str] = []
+	if args.dashboard_ids:
+		extra_dashboard_ids = [
+			x.strip() for x in args.dashboard_ids.split(",") if x.strip()
+		]
+		if any(not dashboard_id.isdigit() for dashboard_id in extra_dashboard_ids):
+			print(
+				color_text(
+					"Dashboard IDs must be comma-separated integer values.", RED
+				)
+			)
+			return 1
 
 	if old_email and old_id:
 		print(color_text("Cannot specify both --old-email and --old-id", RED))
@@ -906,7 +946,7 @@ def main() -> int:
 		if args.dry_run:
 			print("Audit mode selected; --dry-run is redundant because no changes are made.")
 		try:
-			return run_audit_mode(client, old_account_id)
+			return run_audit_mode(client, old_account_id, extra_dashboard_ids)
 		except RuntimeError as exc:
 			print(color_text(str(exc), RED))
 			return 1
@@ -928,6 +968,7 @@ def main() -> int:
 			new_account_id,
 			args.dry_run,
 			rows,
+			extra_dashboard_ids,
 		)
 		issues_processed, issue_errors = transfer_issue_assignments(
 			client,
