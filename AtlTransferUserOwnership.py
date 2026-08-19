@@ -334,7 +334,10 @@ def get_dashboards_for_account(
 	return get_paginated(
 		client,
 		"/rest/api/3/dashboard/search",
-		{"accountId": account_id},
+		{
+			"accountId": account_id,
+			"expand": "sharePermissions,editPermissions",
+		},
 		values_key="values",
 	)
 
@@ -421,12 +424,11 @@ def transfer_dashboards(
 		if not dry_run:
 			status, payload = client.request_json(
 				"PUT",
-				f"/rest/api/3/dashboard/{dashboard_id}",
+				"/rest/api/3/dashboard/bulk/edit",
 				payload={
-					"name": name,
-					"sharePermissions": item.get("sharePermissions", []),
-					"editPermissions": item.get("editPermissions", []),
-					"owner": {"accountId": new_account_id},
+					"action": "changeOwner",
+					"entityIds": [int(dashboard_id)],
+					"changeOwnerDetails": {"accountId": new_account_id},
 				},
 			)
 			if status < 200 or status >= 300:
