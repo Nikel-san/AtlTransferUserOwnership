@@ -422,7 +422,12 @@ def transfer_dashboards(
 			status, payload = client.request_json(
 				"PUT",
 				f"/rest/api/3/dashboard/{dashboard_id}",
-				payload={"owner": {"accountId": new_account_id}},
+				payload={
+					"name": name,
+					"sharePermissions": item.get("sharePermissions", []),
+					"editPermissions": item.get("editPermissions", []),
+					"owner": {"accountId": new_account_id},
+				},
 			)
 			if status < 200 or status >= 300:
 				errors += 1
@@ -621,6 +626,12 @@ def run_audit_mode(
 			"GET", f"/rest/agile/1.0/board/{board_id}/admins"
 		)
 		if status < 200 or status >= 300:
+			print(
+				color_text(
+					f"[BOARD] Cannot read admins for {board_id} ({board_name}): HTTP {status}",
+					YELLOW,
+				)
+			)
 			continue
 
 		admins = _extract_board_admins(payload)
@@ -714,6 +725,12 @@ def process_boards(
 			"GET", f"/rest/agile/1.0/board/{board_id}/admins"
 		)
 		if status < 200 or status >= 300:
+			print(
+				color_text(
+					f"[BOARD] Cannot read admins for {board_id} ({board_name}): HTTP {status}",
+					YELLOW,
+				)
+			)
 			continue
 
 		admins = _extract_board_admins(payload)
