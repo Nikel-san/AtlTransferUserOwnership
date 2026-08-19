@@ -11,7 +11,7 @@ The script processes:
 - Issues currently reported by the old account
 - Boards where the old account is an admin
 
-Filter discovery uses `overrideSharePermissions=true` so private filters can be discovered and transferred when the authenticated PAT has Jira admin permissions. Dashboard discovery is limited to dashboards shared through the Jira search API; private dashboards cannot be discovered or transferred via the Jira Cloud REST API even with admin permissions. The API returns 404 for private dashboards, so the script warns users to ask the departing employee to share private dashboards before running the transfer.
+Filter discovery uses `overrideSharePermissions=true` so private filters can be discovered and transferred when the authenticated PAT has Jira admin permissions. Dashboard discovery is limited to dashboards returned by the Jira search API. Private dashboards may not appear in search results, but known private dashboard IDs can be supplied with `--dashboard-ids` / `-D`; transfers use the administrator bulk ownership endpoint.
 
 Board admin removal is not fully automatable through Jira APIs, so boards are flagged for manual review in the CSV output.
 
@@ -27,8 +27,9 @@ Board admin removal is not fully automatable through Jira APIs, so boards are fl
 | `-d`, `--dry-run` | No | Preview all actions without applying API updates |
 | `-N`, `--notify` | No | Send email notifications for each issue transfer. By default, issue assignee/reporter transfers suppress notifications. |
 | `-f`, `--out` | No | Output CSV path. Default: `transfer_user_ownership_<UTC timestamp>.csv` |
+| `-D`, `--dashboard-ids` | No | Comma-separated additional dashboard IDs, including private dashboards not discoverable through search. IDs are merged with discovered dashboards without duplicates. |
 
-Shared dashboards are transferred automatically when the API returns them through dashboard search. Private dashboards are not discoverable via the Jira Cloud REST API and require a manual workaround: ask the departing user to share them before the transfer.
+Shared dashboards are transferred automatically when the API returns them through dashboard search. To transfer private dashboards that are missing from search results, provide their numeric IDs with `--dashboard-ids` / `-D`. In audit mode, these IDs appear separately under `Additional private dashboards (user-specified)`.
 
 Identifier requirement:
 - You must provide exactly one identifier for the old user: `--old-email` or `--old-id`.
@@ -101,6 +102,15 @@ python AtlTransferUserOwnership.py \
 	--new-id NEW_ACCOUNT_ID
 ```
 
+Live transfer with additional private dashboard IDs:
+
+```bash
+python AtlTransferUserOwnership.py \
+	--old-id OLD_ACCOUNT_ID \
+	--new-id NEW_ACCOUNT_ID \
+	--dashboard-ids 10191,10125
+```
+
 Audit mode (source only, no changes):
 
 ```bash
@@ -109,10 +119,19 @@ python AtlTransferUserOwnership.py \
 	--old-id OLD_ACCOUNT_ID
 ```
 
+Audit mode with additional private dashboard IDs:
+
+```bash
+python AtlTransferUserOwnership.py \
+	--old-id OLD_ACCOUNT_ID \
+	--dashboard-ids 10191,10125
+```
+
 Audit mode output is grouped by type with counts:
 - Boards
 - Filters
 - Dashboards
+- Additional private dashboards (user-specified)
 - Issues as reporter
 - Issues as assignee
 
