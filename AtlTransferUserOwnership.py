@@ -428,7 +428,11 @@ def transfer_dashboards(
 				payload={
 					"action": "changeOwner",
 					"entityIds": [int(dashboard_id)],
-					"changeOwnerDetails": {"accountId": new_account_id},
+					"changeOwnerDetails": {
+						"accountId": new_account_id,
+						"autofixEnabled": True,
+					},
+					"extendAdminPermissions": True,
 				},
 			)
 			if status < 200 or status >= 300:
