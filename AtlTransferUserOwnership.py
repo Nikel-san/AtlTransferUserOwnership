@@ -801,6 +801,32 @@ def process_boards(
 	return processed, errors
 
 
+def read_batch_file(file_path: str) -> List[Tuple[str, str]]:
+	entries: List[Tuple[str, str]] = []
+	try:
+		with open(file_path, newline="", encoding="utf-8-sig") as handle:
+			for row_number, row in enumerate(csv.reader(handle), start=1):
+				if not row or not any(cell.strip() for cell in row):
+					continue
+				if row_number == 1 and row[0].strip().lower() in {"old-email", "old_email"}:
+					continue
+				if len(row) < 2:
+					raise ValueError(
+						f"CSV row {row_number} must contain old-email and new-email columns."
+					)
+				old_email = row[0].strip()
+				new_email = row[1].strip()
+				if not old_email:
+					raise ValueError(f"CSV row {row_number} has an empty old-email value.")
+				entries.append((old_email, new_email))
+	except (OSError, UnicodeError, csv.Error) as exc:
+		raise ValueError(f"Unable to read batch CSV file {file_path}: {exc}") from exc
+
+	if not entries:
+		raise ValueError(f"Batch CSV file {file_path} contains no data rows.")
+	return entries
+
+
 def parse_args() -> argparse.Namespace:
 	parser = argparse.ArgumentParser(
 		description=(
@@ -850,6 +876,10 @@ def parse_args() -> argparse.Namespace:
 	)
 	parser.add_argument(
 		"-f",
+		"--file",
+		help="Path to CSV file containing old-email and new-email pairs for batch processing",
+	)
+	parser.add_argument(
 		"--out",
 		help="Path to output CSV file. Default: transfer_user_ownership_<UTC timestamp>.csv",
 	)
@@ -888,6 +918,20 @@ def main() -> int:
 
 	client = JiraClient(base_url, env["JIRA_EMAIL"], env["JIRA_PAT"])
 
+	if args.file and any(
+		value for value in (args.old_email, args.old_id, args.new_email, args.new_id)
+	):
+		print(color_text("Do not combine --file with direct user identifiers.", RED))
+		return 1
+
+	try:
+		batch_entries = read_batch_file(args.file) if args.file else [
+			(args.old_email or "", args.new_email or "")
+		]
+	except ValueError as exc:
+		print(color_text(str(exc), RED))
+		return 1
+
 	old_email = args.old_email.strip() if args.old_email else ""
 	new_email = args.new_email.strip() if args.new_email else ""
 	old_id = args.old_id.strip() if args.old_id else ""
@@ -905,104 +949,99 @@ def main() -> int:
 			)
 			return 1
 
-	if old_email and old_id:
+	if not args.file and old_email and old_id:
 		print(color_text("Cannot specify both --old-email and --old-id", RED))
 		return 1
-	if new_email and new_id:
+	if not args.file and new_email and new_id:
 		print(color_text("Cannot specify both --new-email and --new-id", RED))
 		return 1
 
-	if not old_id and not old_email:
+	if not args.file and not old_id and not old_email:
 		print(color_text("Provide either --old-email or --old-id.", RED))
 		return 1
 
-	audit_mode = not new_id and not new_email
-
-	if old_email and new_email and old_email.lower() == new_email.lower():
-		print(color_text("Old and new email addresses must be different.", RED))
-		return 1
-
-	try:
-		if old_id:
-			old_account_id = old_id
-		else:
-			old_account_id = lookup_account_id_by_email(client, old_email)
-
-		new_account_id = ""
-		if not audit_mode:
-			if new_id:
-				new_account_id = new_id
-			else:
-				new_account_id = lookup_account_id_by_email(client, new_email)
-	except RuntimeError as exc:
-		print(color_text(str(exc), RED))
-		return 1
-
-	if not audit_mode and old_account_id == new_account_id:
-		print(color_text("Old and new account IDs must be different.", RED))
-		return 1
-
-	if audit_mode:
-		if args.dry_run:
-			print("Audit mode selected; --dry-run is redundant because no changes are made.")
-		try:
-			return run_audit_mode(client, old_account_id, extra_dashboard_ids)
-		except RuntimeError as exc:
-			print(color_text(str(exc), RED))
-			return 1
-
 	rows: List[CsvRow] = []
 	total_errors = 0
+	filters_processed = dashboards_processed = issues_processed = 0
+	reporters_processed = boards_processed = 0
+	for entry_old_email, entry_new_email in batch_entries:
+		old_email = entry_old_email.strip()
+		new_email = entry_new_email.strip()
+		entry_audit_mode = not new_email
+		if old_email and new_email and old_email.lower() == new_email.lower():
+			print(color_text("Old and new email addresses must be different.", RED))
+			return 1
 
-	try:
-		filters_processed, filter_errors = transfer_filters(
-			client,
-			old_account_id,
-			new_account_id,
-			args.dry_run,
-			rows,
-		)
-		dashboards_processed, dashboard_errors = transfer_dashboards(
-			client,
-			old_account_id,
-			new_account_id,
-			args.dry_run,
-			rows,
-			extra_dashboard_ids,
-		)
-		issues_processed, issue_errors = transfer_issue_assignments(
-			client,
-			old_account_id,
-			new_account_id,
-			args.dry_run,
-			args.notify,
-			rows,
-		)
-		reporters_processed, reporter_errors = transfer_issue_reporters(
-			client,
-			old_account_id,
-			new_account_id,
-			args.dry_run,
-			args.notify,
-			rows,
-		)
-		boards_processed, board_errors = process_boards(
-			client,
-			old_account_id,
-			new_account_id,
-			args.dry_run,
-			rows,
-		)
-		total_errors = (
-			filter_errors
-			+ dashboard_errors
-			+ issue_errors
-			+ reporter_errors
-			+ board_errors
-		)
-	except RuntimeError as exc:
-		print(color_text(str(exc), RED))
-		return 1
+		try:
+			old_account_id = (
+				old_id
+				if not args.file and old_id
+				else lookup_account_id_by_email(client, old_email)
+			)
+			if entry_audit_mode:
+				if args.dry_run:
+					print("Audit mode selected; --dry-run is redundant because no changes are made.")
+				if not args.file:
+					return run_audit_mode(client, old_account_id, extra_dashboard_ids)
+				else:
+					run_audit_mode(client, old_account_id, extra_dashboard_ids)
+				continue
+
+			new_account_id = (
+				new_id
+				if not args.file and new_id
+				else lookup_account_id_by_email(client, new_email)
+			)
+			if old_account_id == new_account_id:
+				raise RuntimeError("Old and new account IDs must be different.")
+
+			filter_count, filter_errors = transfer_filters(
+				client, old_account_id, new_account_id, args.dry_run, rows
+			)
+			dashboard_count, dashboard_errors = transfer_dashboards(
+				client,
+				old_account_id,
+				new_account_id,
+				args.dry_run,
+				rows,
+				extra_dashboard_ids,
+			)
+			issue_count, issue_errors = transfer_issue_assignments(
+				client,
+				old_account_id,
+				new_account_id,
+				args.dry_run,
+				args.notify,
+				rows,
+			)
+			reporter_count, reporter_errors = transfer_issue_reporters(
+				client,
+				old_account_id,
+				new_account_id,
+				args.dry_run,
+				args.notify,
+				rows,
+			)
+			board_count, board_errors = process_boards(
+				client, old_account_id, new_account_id, args.dry_run, rows
+			)
+			filters_processed += filter_count
+			dashboards_processed += dashboard_count
+			issues_processed += issue_count
+			reporters_processed += reporter_count
+			boards_processed += board_count
+			total_errors += (
+				filter_errors
+				+ dashboard_errors
+				+ issue_errors
+				+ reporter_errors
+				+ board_errors
+			)
+		except RuntimeError as exc:
+			print(color_text(f"{old_email}: {exc}", RED))
+			if not args.file:
+				return 1
+			total_errors += 1
 
 	ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
 	output_file = args.out if args.out else f"transfer_user_ownership_{ts}.csv"

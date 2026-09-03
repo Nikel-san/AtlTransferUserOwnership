@@ -26,7 +26,8 @@ Board admin removal is not fully automatable through Jira APIs, so boards are fl
 | `--new-id` | No (required for transfer) | Jira account ID of the replacement user. Mutually exclusive with `--new-email`. Omit together with `--new-email` to run audit mode. |
 | `-d`, `--dry-run` | No | Preview all actions without applying API updates |
 | `-N`, `--notify` | No | Send email notifications for each issue transfer. By default, issue assignee/reporter transfers suppress notifications. |
-| `-f`, `--out` | No | Output CSV path. Default: `transfer_user_ownership_<UTC timestamp>.csv` |
+| `-f`, `--file` | No | Input CSV path for batch processing. Each row contains `old-email` and `new-email`. |
+| `--out` | No | Output CSV path. Default: `transfer_user_ownership_<UTC timestamp>.csv` |
 | `-D`, `--dashboard-ids` | No | Comma-separated additional dashboard IDs, including private dashboards not discoverable through search. IDs are merged with discovered dashboards without duplicates. |
 
 Shared dashboards are transferred automatically when the API returns them through dashboard search. To transfer private dashboards that are missing from search results, provide their numeric IDs with `--dashboard-ids` / `-D`. In audit mode, these IDs appear separately under `Additional private dashboards (user-specified)`.
@@ -101,6 +102,27 @@ python AtlTransferUserOwnership.py \
 	--old-id OLD_ACCOUNT_ID \
 	--new-id NEW_ACCOUNT_ID
 ```
+
+Batch transfer from a CSV file:
+
+```bash
+python AtlTransferUserOwnership.py \
+	--file users.csv \
+	--dry-run
+```
+
+The input CSV uses the first column for the source email and the second column
+for the destination email. A header row is optional; blank destination values
+run audit mode for that source user. For example:
+
+```csv
+old-email,new-email
+old.user@example.com,new.user@example.com
+another.old@example.com,another.new@example.com
+```
+
+Use `--out` to choose the combined output CSV path. Do not combine `--file`
+with the direct user identifier options.
 
 Live transfer with additional private dashboard IDs:
 
