@@ -1280,7 +1280,7 @@ def main() -> int:
 	for entry_old_email, entry_new_email in batch_entries:
 		old_email = entry_old_email.strip()
 		new_email = entry_new_email.strip()
-		entry_audit_mode = not new_email
+		entry_audit_mode = not (new_email or (not args.file and new_id))
 		if old_email and new_email and old_email.lower() == new_email.lower():
 			print(color_text("Old and new email addresses must be different.", RED))
 			return 1
