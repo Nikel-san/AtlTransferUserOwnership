@@ -342,6 +342,257 @@ def get_dashboards_for_account(
 	)
 
 
+def normalize_custom_field_ids(value: Optional[str]) -> List[str]:
+	field_ids: List[str] = []
+	for raw_id in (value or "").split(","):
+		field_id = raw_id.strip().lower()
+		if not field_id:
+			continue
+		if field_id.isdigit():
+			field_id = f"customfield_{field_id}"
+		elif field_id.startswith("customfield_") and field_id[12:].isdigit():
+			pass
+		else:
+			raise ValueError(
+				f"Invalid custom field ID '{raw_id}'. Use numeric IDs or customfield_<ID>."
+			)
+		if field_id not in field_ids:
+			field_ids.append(field_id)
+	return field_ids
+
+
+def resolve_custom_fields(
+	client: JiraClient,
+	field_ids: List[str],
+) -> List[Dict[str, str]]:
+	if not field_ids:
+		return []
+
+	status, payload = client.request_json("GET", "/rest/api/3/field")
+	if status < 200 or status >= 300:
+		raise RuntimeError(f"GET /rest/api/3/field failed with status {status}: {payload}")
+	if not isinstance(payload, list):
+		raise RuntimeError("GET /rest/api/3/field returned an unexpected response.")
+
+	fields_by_id = {
+		item.get("id", "").lower(): item
+		for item in payload
+		if isinstance(item, dict) and isinstance(item.get("id"), str)
+	}
+	resolved: List[Dict[str, str]] = []
+	for field_id in field_ids:
+		item = fields_by_id.get(field_id)
+		if item is None:
+			raise RuntimeError(f"Custom field not found: {field_id}")
+		schema = item.get("schema", {})
+		custom_type = schema.get("custom", "") if isinstance(schema, dict) else ""
+		field_type = schema.get("type") if isinstance(schema, dict) else None
+		if (
+			item.get("custom") is not True
+			or field_type != "user"
+			or (custom_type and not str(custom_type).lower().endswith(":userpicker"))
+		):
+			raise RuntimeError(
+				f"Custom field {field_id} is not a single User Picker field."
+			)
+		name = str(item.get("name") or field_id)
+		resolved.append(
+			{
+				"id": field_id,
+				"number": field_id[12:],
+				"name": name,
+				"label": f"{name} ({field_id})",
+			}
+		)
+	return resolved
+
+
+def get_custom_field_issues(
+	client: JiraClient,
+	old_account_id: str,
+	field: Dict[str, str],
+) -> List[Dict[str, Any]]:
+	escaped_account_id = old_account_id.replace("\\", "\\\\").replace('"', '\\"')
+	jql = f'cf[{field["number"]}] = "{escaped_account_id}"'
+	return get_jql_search_issues(
+		client,
+		jql,
+		f'summary,{field["id"]}',
+		page_size=100,
+	)
+
+
+def get_components_led_by_account(
+	client: JiraClient,
+	account_id: str,
+) -> List[Dict[str, str]]:
+	status, projects = client.request_json("GET", "/rest/api/3/project")
+	if status < 200 or status >= 300:
+		raise RuntimeError(
+			f"GET /rest/api/3/project failed with status {status}: {projects}"
+		)
+	if not isinstance(projects, list):
+		raise RuntimeError("GET /rest/api/3/project returned an unexpected response.")
+
+	components_led: List[Dict[str, str]] = []
+	for project in projects:
+		if not isinstance(project, dict) or not project.get("id"):
+			continue
+		project_id = str(project["id"])
+		project_key = str(project.get("key", project_id))
+		status, components = client.request_json(
+			"GET", f"/rest/api/3/project/{project_id}/components"
+		)
+		if status < 200 or status >= 300:
+			raise RuntimeError(
+				f"GET /rest/api/3/project/{project_id}/components failed "
+				f"with status {status}: {components}"
+			)
+		if not isinstance(components, list):
+			raise RuntimeError(
+				f"GET /rest/api/3/project/{project_id}/components returned an unexpected response."
+			)
+		for component in components:
+			if not isinstance(component, dict) or not component.get("id"):
+				continue
+			lead = component.get("lead")
+			if isinstance(lead, dict) and lead.get("accountId") == account_id:
+				components_led.append(
+					{
+						"id": str(component["id"]),
+						"name": str(component.get("name", "")),
+						"project_key": project_key,
+					}
+				)
+	return components_led
+
+
+def transfer_custom_fields(
+	client: JiraClient,
+	old_account_id: str,
+	new_account_id: str,
+	custom_fields: List[Dict[str, str]],
+	dry_run: bool,
+	notify: bool,
+	rows: List[CsvRow],
+) -> Tuple[int, int]:
+	processed = 0
+	errors = 0
+	for field in custom_fields:
+		for issue in get_custom_field_issues(client, old_account_id, field):
+			key = str(issue.get("key", ""))
+			issue_fields = issue.get("fields", {})
+			if not key:
+				continue
+			summary = (
+				str(issue_fields.get("summary", ""))
+				if isinstance(issue_fields, dict)
+				else ""
+			)
+			processed += 1
+			action = "preview-transfer" if dry_run else "transferred"
+			if not dry_run:
+				status, payload = client.request_json(
+					"PUT",
+					f"/rest/api/3/issue/{key}",
+					query={"notifyUsers": "true" if notify else "false"},
+					payload={
+						"fields": {field["id"]: {"accountId": new_account_id}}
+					},
+				)
+				if status < 200 or status >= 300:
+					errors += 1
+					action = "error"
+					print(
+						color_text(
+							f"[CUSTOM FIELD] Failed {field['label']} for {key} "
+							f"({summary}): {payload}",
+							RED,
+						)
+					)
+				else:
+					print(
+						color_text(
+							f"[CUSTOM FIELD] Transferred {field['label']} for {key} ({summary})",
+							GREEN,
+						)
+					)
+			else:
+				print(
+					color_text(
+						f"[CUSTOM FIELD] Preview transfer {field['label']} "
+						f"for {key} ({summary})",
+						GREEN,
+					)
+				)
+			rows.append(
+				CsvRow(
+					"customfield",
+					f"{key}:{field['id']}",
+					f"{field['label']} - {summary}".strip(" -"),
+					action,
+					old_account_id,
+					new_account_id,
+				)
+			)
+	return processed, errors
+
+
+def transfer_component_leads(
+	client: JiraClient,
+	old_account_id: str,
+	new_account_id: str,
+	dry_run: bool,
+	rows: List[CsvRow],
+) -> Tuple[int, int]:
+	components = get_components_led_by_account(client, old_account_id)
+	processed = 0
+	errors = 0
+	for component in components:
+		component_id = component["id"]
+		name = f"{component['name']} ({component['project_key']})"
+		processed += 1
+		action = "preview-transfer" if dry_run else "transferred"
+		if not dry_run:
+			status, payload = client.request_json(
+				"PUT",
+				f"/rest/api/3/component/{component_id}",
+				payload={"leadAccountId": new_account_id},
+			)
+			if status < 200 or status >= 300:
+				errors += 1
+				action = "error"
+				print(
+					color_text(
+						f"[COMPONENT LEAD] Failed transfer {component_id} ({name}): {payload}",
+						RED,
+					)
+				)
+			else:
+				print(
+					color_text(
+						f"[COMPONENT LEAD] Transferred {component_id} ({name})", GREEN
+					)
+				)
+		else:
+			print(
+				color_text(
+					f"[COMPONENT LEAD] Preview transfer {component_id} ({name})", GREEN
+				)
+			)
+		rows.append(
+			CsvRow(
+				"component-lead",
+				component_id,
+				name,
+				action,
+				old_account_id,
+				new_account_id,
+			)
+		)
+	return processed, errors
+
+
 def print_private_dashboard_warning() -> None:
 	print(
 		color_text(
@@ -606,7 +857,11 @@ def run_audit_mode(
 	client: JiraClient,
 	old_account_id: str,
 	extra_ids: Optional[List[str]] = None,
+	custom_fields: Optional[List[Dict[str, str]]] = None,
+	rows: Optional[List[CsvRow]] = None,
 ) -> int:
+	custom_fields = custom_fields or []
+	rows = rows if rows is not None else []
 	filters = get_filters_for_account(client, old_account_id)
 	dashboards = get_dashboards_for_account(client, old_account_id)
 	discovered_ids = {str(item.get("id", "")) for item in dashboards}
@@ -628,6 +883,44 @@ def run_audit_mode(
 		"summary,reporter",
 		page_size=100,
 	)
+	custom_field_items: List[Tuple[str, str]] = []
+	for field in custom_fields:
+		for issue in get_custom_field_issues(client, old_account_id, field):
+			key = str(issue.get("key", ""))
+			issue_fields = issue.get("fields", {})
+			if not key:
+				continue
+			summary = (
+				str(issue_fields.get("summary", ""))
+				if isinstance(issue_fields, dict)
+				else ""
+			)
+			custom_field_items.append((f"{key} / {field['label']}", summary))
+			rows.append(
+				CsvRow(
+					"customfield",
+					f"{key}:{field['id']}",
+					f"{field['label']} - {summary}".strip(" -"),
+					"audit",
+					old_account_id,
+					"",
+				)
+			)
+	component_leads = get_components_led_by_account(client, old_account_id)
+	component_items: List[Tuple[str, str]] = []
+	for component in component_leads:
+		component_name = f"{component['name']} ({component['project_key']})"
+		component_items.append((component["id"], component_name))
+		rows.append(
+			CsvRow(
+				"component-lead",
+				component["id"],
+				component_name,
+				"audit",
+				old_account_id,
+				"",
+			)
+		)
 
 	boards = get_paginated(
 		client,
@@ -692,6 +985,8 @@ def run_audit_mode(
 	)
 	_print_audit_group("Issues as reporter", reporter_items)
 	_print_audit_group("Issues as assignee", assignee_items)
+	_print_audit_group("User Picker custom fields", custom_field_items)
+	_print_audit_group("Component leads", component_items)
 
 	total = (
 		len(board_items)
@@ -699,6 +994,8 @@ def run_audit_mode(
 		+ len(dashboard_items)
 		+ len(reporter_items)
 		+ len(assignee_items)
+		+ len(custom_field_items)
+		+ len(component_items)
 	)
 	print("\nSummary")
 	print(f"Total owned objects found: {total}")
@@ -892,6 +1189,14 @@ def parse_args() -> argparse.Namespace:
 			"These IDs are merged with any dashboards found via the search endpoint."
 		),
 	)
+	parser.add_argument(
+		"-C",
+		"--custom-field-ids",
+		help=(
+			"Comma-separated single User Picker custom field IDs or keys "
+			"(e.g. 10050,customfield_10101)."
+		),
+	)
 	return parser.parse_args()
 
 
@@ -960,10 +1265,18 @@ def main() -> int:
 		print(color_text("Provide either --old-email or --old-id.", RED))
 		return 1
 
+	try:
+		custom_field_ids = normalize_custom_field_ids(args.custom_field_ids)
+		custom_fields = resolve_custom_fields(client, custom_field_ids)
+	except (RuntimeError, ValueError) as exc:
+		print(color_text(str(exc), RED))
+		return 1
+
 	rows: List[CsvRow] = []
 	total_errors = 0
 	filters_processed = dashboards_processed = issues_processed = 0
 	reporters_processed = boards_processed = 0
+	custom_fields_processed = component_leads_processed = 0
 	for entry_old_email, entry_new_email in batch_entries:
 		old_email = entry_old_email.strip()
 		new_email = entry_new_email.strip()
@@ -981,10 +1294,19 @@ def main() -> int:
 			if entry_audit_mode:
 				if args.dry_run:
 					print("Audit mode selected; --dry-run is redundant because no changes are made.")
+				audit_status = run_audit_mode(
+					client,
+					old_account_id,
+					extra_dashboard_ids,
+					custom_fields,
+					rows,
+				)
 				if not args.file:
-					return run_audit_mode(client, old_account_id, extra_dashboard_ids)
-				else:
-					run_audit_mode(client, old_account_id, extra_dashboard_ids)
+					ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+					output_file = args.out or f"transfer_user_ownership_{ts}.csv"
+					write_csv(rows, output_file)
+					print(f"CSV: {output_file}")
+					return audit_status
 				continue
 
 			new_account_id = (
@@ -1025,17 +1347,33 @@ def main() -> int:
 			board_count, board_errors = process_boards(
 				client, old_account_id, new_account_id, args.dry_run, rows
 			)
+			custom_field_count, custom_field_errors = transfer_custom_fields(
+				client,
+				old_account_id,
+				new_account_id,
+				custom_fields,
+				args.dry_run,
+				args.notify,
+				rows,
+			)
+			component_count, component_errors = transfer_component_leads(
+				client, old_account_id, new_account_id, args.dry_run, rows
+			)
 			filters_processed += filter_count
 			dashboards_processed += dashboard_count
 			issues_processed += issue_count
 			reporters_processed += reporter_count
 			boards_processed += board_count
+			custom_fields_processed += custom_field_count
+			component_leads_processed += component_count
 			total_errors += (
 				filter_errors
 				+ dashboard_errors
 				+ issue_errors
 				+ reporter_errors
 				+ board_errors
+				+ custom_field_errors
+				+ component_errors
 			)
 		except RuntimeError as exc:
 			print(color_text(f"{old_email}: {exc}", RED))
@@ -1055,6 +1393,8 @@ def main() -> int:
 	print(f"Issues processed: {issues_processed}")
 	print(f"Issue reporters processed: {reporters_processed}")
 	print(f"Boards flagged: {boards_processed}")
+	print(f"Custom field values processed: {custom_fields_processed}")
+	print(f"Component leads processed: {component_leads_processed}")
 	print(f"Errors: {total_errors}")
 	print(f"CSV: {output_file}")
 

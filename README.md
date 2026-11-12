@@ -10,10 +10,14 @@ The script processes:
 - Issues currently assigned to the old account
 - Issues currently reported by the old account
 - Boards where the old account is an admin
+- Component leads assigned to the old account
+- User Picker custom fields specified with `--custom-field-ids`
 
 Filter discovery uses `overrideSharePermissions=true` so private filters can be discovered and transferred when the authenticated PAT has Jira admin permissions. Dashboard discovery is limited to dashboards returned by the Jira search API. Private dashboards may not appear in search results, but known private dashboard IDs can be supplied with `--dashboard-ids` / `-D`; transfers use the administrator bulk ownership endpoint.
 
 Board admin removal is not fully automatable through Jira APIs, so boards are flagged for manual review in the CSV output.
+
+Single-user User Picker custom fields can be transferred by specifying their IDs or keys with `--custom-field-ids` / `-C`. The script resolves field names through Jira and reports them as `Field Name (customfield_ID)`. Component leads are discovered across projects and transferred automatically.
 
 ## Options
 
@@ -29,6 +33,7 @@ Board admin removal is not fully automatable through Jira APIs, so boards are fl
 | `-f`, `--file` | No | Input CSV path for batch processing. Each row contains `old-email` and `new-email`. |
 | `--out` | No | Output CSV path. Default: `transfer_user_ownership_<UTC timestamp>.csv` |
 | `-D`, `--dashboard-ids` | No | Comma-separated additional dashboard IDs, including private dashboards not discoverable through search. IDs are merged with discovered dashboards without duplicates. |
+| `-C`, `--custom-field-ids` | No | Comma-separated single User Picker custom field IDs or keys (for example `10050,customfield_10101`). |
 
 Shared dashboards are transferred automatically when the API returns them through dashboard search. To transfer private dashboards that are missing from search results, provide their numeric IDs with `--dashboard-ids` / `-D`. In audit mode, these IDs appear separately under `Additional private dashboards (user-specified)`.
 
@@ -52,7 +57,7 @@ Site resolution priority:
 
 By default, the script resolves users from `--old-email` and `--new-email`. If Jira cannot resolve an external/non-managed account by email, provide `--old-id` and/or `--new-id` to bypass email lookup for that side.
 
-Issue assignee and reporter transfers suppress email notifications by default. Pass `-N` or `--notify` to opt in to notifications for those transfers.
+Issue assignee, reporter, and User Picker custom-field transfers suppress email notifications by default. Pass `-N` or `--notify` to opt in to notifications for those transfers.
 
 When resolving by email, the script first looks for an exact Jira email match. If Jira returns exactly one matching user but the `emailAddress` field is hidden by privacy rules, the script trusts that single result and continues with its account ID.
 
@@ -103,6 +108,15 @@ python AtlTransferUserOwnership.py \
 	--new-id NEW_ACCOUNT_ID
 ```
 
+Live transfer with User Picker custom fields (component leads are included automatically):
+
+```bash
+python AtlTransferUserOwnership.py \
+	--old-id OLD_ACCOUNT_ID \
+	--new-id NEW_ACCOUNT_ID \
+	--custom-field-ids 10050,customfield_10101
+```
+
 Batch transfer from a CSV file:
 
 ```bash
@@ -149,6 +163,14 @@ python AtlTransferUserOwnership.py \
 	--dashboard-ids 10191,10125
 ```
 
+Audit mode with User Picker custom fields:
+
+```bash
+python AtlTransferUserOwnership.py \
+	--old-id OLD_ACCOUNT_ID \
+	--custom-field-ids 10050,customfield_10101
+```
+
 Audit mode output is grouped by type with counts:
 - Boards
 - Filters
@@ -156,12 +178,16 @@ Audit mode output is grouped by type with counts:
 - Additional private dashboards (user-specified)
 - Issues as reporter
 - Issues as assignee
+- User Picker custom fields
+- Component leads
+
+Audit mode writes the discovered User Picker custom-field and component-lead entries to the CSV with action `audit`.
 
 ## CSV Output
 
 The CSV file includes one row per processed entity with these columns:
 
-- `entity_type` - Entity category (`filter`, `dashboard`, `issue`, `issue-reporter`, `board`)
+- `entity_type` - Entity category (`filter`, `dashboard`, `issue`, `issue-reporter`, `board`, `customfield`, `component-lead`)
 - `entity_id` - Jira entity identifier (ID or key)
 - `entity_name` - Entity display name or issue summary
 - `action` - Result of processing (`transferred`, `preview-transfer`, `manual-review-required`, or `error`)

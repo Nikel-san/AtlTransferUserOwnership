@@ -99,3 +99,21 @@ These patterns waste tokens and violate credit-efficiency rules:
 - **Multiple git status checks** → Check only at key checkpoints (before commit, after push)
 - **Incremental code changes and testing** → Complete all edits first, then validate once
 - **Reading large Jira responses multiple times** → Parse once, reuse extracted data
+
+## AtlTransferUserOwnership Notes
+
+Use `-C` / `--custom-field-ids` with a comma-separated list of single User Picker custom field IDs or keys. Field names are resolved through Jira and shown with their IDs in logs and CSV output. Component leads are discovered across projects and transferred automatically.
+
+Live transfer example:
+
+```bash
+python AtlTransferUserOwnership.py --old-id OLD_ACCOUNT_ID --new-id NEW_ACCOUNT_ID --custom-field-ids 10050,customfield_10101
+```
+
+Read-only audit example:
+
+```bash
+python AtlTransferUserOwnership.py --old-id OLD_ACCOUNT_ID --custom-field-ids 10050,customfield_10101
+```
+
+Audit results for these entities are written to CSV with `customfield` or `component-lead` entity types and the `audit` action.
